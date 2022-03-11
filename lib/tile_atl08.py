@@ -110,8 +110,9 @@ def main():
     parser = argparse.ArgumentParser()
     #parser.add_argument("-ept", "--in_ept_fn", type=str, help="The input ept of ATL08 observations") 
     parser.add_argument("-in_tile_num", type=int, help="The id number of an input vector tile that will define the bounds for ATL08 subset")
-    parser.add_argument("-in_tile_fn", type=str, default="/projects/shared-buckets/nathanmthomas/boreal_tiles_v002.gpkg", help="The input filename of a set of vector tiles that will define the bounds for ATL08 subset")
-    parser.add_argument("-in_tile_layer", type=str, default="boreal_tiles_v002", help="The layer name of the stack tiles dataset")
+    parser.add_argument("-in_tile_fn", type=str, default="/projects/shared-buckets/nathanmthomas/boreal_tiles_v003.gpkg", help="The input filename of a set of vector tiles that will define the bounds for ATL08 subset")
+    parser.add_argument("-in_tile_layer", type=str, default="boreal_tiles_v003", help="The layer name of the stack tiles dataset")
+    parser.add_argument("-in_tile_id_col", type=str, default="tile_num", help="The column of the tile layer name of the stack tiles dataset that holds the tile num")
     parser.add_argument("-csv_list_fn", type=str, default=None, help="The file of all CSVs paths")
     parser.add_argument("-topo_stack_list_fn", type=str, default="/projects/shared-buckets/nathanmthomas/DPS_tile_lists/Topo_tindex_master.csv", help="The file of all topo stack paths")
     parser.add_argument("-landsat_stack_list_fn", type=str, default="/projects/shared-buckets/nathanmthomas/DPS_tile_lists/Landsat_tindex_master.csv", help="The file of all Landsat stack paths")
@@ -232,7 +233,7 @@ def main():
         
         print("\nDoing MAAP query by tile bounds to find all intersecting ATL08 ")
         # Get a list of all ATL08 H5 granule names intersecting the tile (this will be a small list)
-        all_atl08_for_tile = ExtractUtils.maap_search_get_h5_list(tile_num=in_tile_num, tile_fn=in_tile_fn, layer=in_tile_layer, DATE_START=date_start, DATE_END=date_end, YEARS=years_list, version=v_ATL08)
+        all_atl08_for_tile = ExtractUtils.maap_search_get_h5_list(tile_num=in_tile_num, id_col=args.in_tile_id_col, tile_fn=in_tile_fn, layer=in_tile_layer, DATE_START=date_start, DATE_END=date_end, YEARS=years_list, version=v_ATL08)
          
         if DEBUG:
             # Print ATL08 h5 granules for tile
@@ -280,7 +281,7 @@ def main():
 
         print("\nFiltering by tile: {}".format(in_tile_num))
         # Get tile bounds as xmin,xmax,ymin,ymax
-        tile = ExtractUtils.get_index_tile(in_tile_fn, in_tile_num, buffer=0, layer=in_tile_layer)
+        tile = ExtractUtils.get_index_tile(vector_path=in_tile_fn, id_col=args.in_tile_id_col, tile_id=in_tile_num, buffer=0, layer=in_tile_layer)
         in_bounds = FilterUtils.reorder_4326_bounds(tile)
         print(in_bounds)
         
