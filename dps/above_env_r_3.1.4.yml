@@ -1,4 +1,4 @@
-name: pangeo
+name: icesat2_boreal
 channels:
   - conda-forge
   - defaults
