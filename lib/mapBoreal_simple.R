@@ -782,12 +782,15 @@ check_var <- function(totals){
         for (i in 1:nrow){
             temp_tot <- totals[1:i]
             if(i>2){
+                 # BUG alert: sd[2]=0, this underestimates the the baseline_var
                  sd[i] <- sd(temp_tot, na.rm=TRUE)
             }
         }
         #test the variance for the last 10 sds
             #b_min <- (nrow-20)
+            # BUG alret: if nrow < 11 (nrow-9<2) the lines below will error !!
             b_max <- (nrow-9)
+            # BUG Alert: this doesn't look at the last 10 (or the the last n) sds as commented 3 lines above.
             baseline_var <- mean(sd[1:b_max], na.rm=TRUE)
             print('baseline_var:')
             print(baseline_var)
@@ -993,7 +996,7 @@ mapBoreal<-function(rds_models,
     print('model fitting complete!')
 
     final_map <- applyModels(models, stack, pred_vars, predict_var, tile_num)
-
+    print('after applyModels...............')
     xtable <- models[[1]]
 
     if(ppside >= 1){
@@ -1254,7 +1257,7 @@ boreal_vect <- '~/Downloads/dps_output/wwf_circumboreal_Dissolve.geojson'
 
 DO_MASK_WITH_STACK_VARS <- 'TRUE'
 #data_sample_file <- '/projects/my-private-bucket/boreal_train_data_v11.csv'
-iters <- 1
+iters <- 30
 ppside <- 1
 minDOY <- 130
 maxDOY <- 250
