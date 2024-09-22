@@ -882,6 +882,34 @@ remove_stale_columns <- function(df, column_names) {
   return(df)
 }
 
+sample_broad_data_within_latitute <- function(broad_data, latitue, threshold){
+
+  broad_within_lat <- which(broad_data$lat > (lat-threshold) & broad_data$lat < (lat+threshold))
+  broad_data <- broad_data[broad_within_lat,]
+  broad_samp_ids <- seq(1, nrow(broad_data))
+  broad_sample_ids <- sample(broad_samp_ids, nrow(broad_data), replace=FALSE)
+  return(broad_data[broad_sample_ids,])
+
+}
+
+expand_training_with_broad_data <- function(broad_data, tile_data){
+
+  broad_data <- sample_broad_data_within_latitude(broad_data, min(tile_data$lat), 5)
+  return(rbind(tile_data, broad_data))
+}
+
+remove_height_outliers <- function(all_train_data){
+  # remove height outliers based on more than 3SD from the landcover mean
+
+  return(
+  all_train_data |>
+    group_by(segment_landcover) |>
+    summarise(thresh=mean(h_canopy, na.rm=T) + 3 * sd(h_canopy, na.rm=T)) |>
+    right_join(all_train_data, by='segment_landcover') |>
+    filter(h_canopy <= thresh)
+  )
+}
+
 mapBoreal<-function(rds_models,
                     models_id,
                     ice2_30_atl08_path, 
@@ -925,87 +953,31 @@ mapBoreal<-function(rds_models,
     #   tile_data <- reduce_sample_size(tile_data, max_n)
 
     tile_data <- remove_stale_columns(tile_data, c("binsize", "num_bins"))
-    n_avail <- nrow(tile_data)
     broad_data <- read.csv(ice2_30_sample_path)
     broad_data <- remove_stale_columns(broad_data, c("X__index_level_0__", "geometry"))
     print(ice2_30_sample_path)
 
-    #take propertion of broad data we want based on local_train_perc
-    sample_local <- n_avail * (local_train_perc/100)
-    print('sample_local:')
-    print(n_avail)
+    # take proportion of broad data we want based on local_train_perc
+    sample_local <- nrow(tile_data) * (local_train_perc/100)
+    print(c('sample_local:', sample_local))
 
     if (sample_local < min_icesat2_samples)
       tile_data <- reduce_sample_size(tile_data, sample_local)
 
-    #sample from broad data to complete sample size
-    #this will work if either there aren't enough local samples for n_min OR if there is forced broad sampling
+    # sample from broad data to complete sample size
+    # this will work if either there aren't enough local samples for n_min OR if there is forced broad sampling
     n_broad <- min_icesat2_samples - nrow(tile_data)
-    
-    if(n_broad > 1){
-        broad_samp_ids <- seq(1,n_broad)
-        
-        #subset broad data to be within a certain latitude (5 degrees)
-        lat_thresh <- 5
-        min_lat <- min(tile_data$lat)
-        broad_in_lat <- which(broad_data$lat > (min_lat-lat_thresh) & broad_data$lat < (min_lat+lat_thresh))
-        broad_data <- broad_data[broad_in_lat,]
-        broad_sample_ids <- sample(broad_samp_ids, n_broad, replace=FALSE)
-        broad_data <- broad_data[broad_sample_ids,]
-        all_train_data <- rbind(tile_data, broad_data)
-    } else {
+    if(n_broad > 1)
+        all_train_data <- expand_training_with_broad_data(broad_data, tile_data)
+    else
         all_train_data <- tile_data
-        }
-    #remove first col - removed this when switched to v6
-    #all_train_data <- all_train_data[,-1]
+
     str(all_train_data)
-    #remove height outliers based on more than 4SD from the landcover mean
-    lcs <- unique(all_train_data$segment_landcover)
-    means <- lcs*0
-    thresholds <- means
-    n_lcs <- length(lcs)
+    all_train_data <- remove_height_outliers(all_train_data)
     
-    for(i in 1:n_lcs){
-    data_in <- all_train_data[which(all_train_data$segment_landcover==lcs[i]),]
-    mean <- mean(data_in$h_canopy, na.rm=TRUE)
-    threshold <- mean+(3*sd(data_in$h_canopy, na.rm=TRUE))
-
-    bad_data <- which(data_in$h_canopy > threshold)
-    n_bad <- length(bad_data)
-
-    if(n_bad>0){
-        data_filt <- data_in[-bad_data,]
-    } 
-    if(n_bad==0){
-        data_filt <- data_in
-        }
-       
-    if(i==1){
-        data_filt_out <- data_filt
-        }
-    if(i>1){
-        data_filt_out <- rbind(data_filt, data_filt_out)
-        } 
-    }
-    
-    all_train_data <- data_filt_out
-    rm(data_filt_out)
-    
-    #apply filters
-    
-    
-    tile_data_output <- tile_data
+    tile_data_output <- tile_data # probably not needed
     print(paste0('table for model training generated with ', nrow(all_train_data), ' observations'))
 
-    # run 
-    #if(DO_MASK){
-    #    pred_vars <- c('slopemask', 'ValidMask', 'Red', 'Green','elevation', 'slope', 'tsri', 'tpi', 'NIR', 'SWIR', 'SWIR2', 'NDVI', 'SAVI', 'MSAVI', 'NDMI', 'EVI', 'NBR', 'NBR2', 'TCB', 'TCG', 'TCW')
-
-    #}else{
-    #    pred_vars <- c('Xgeo', 'Ygeo','elevation', 'slope', 'tsri', 'tpi', 'Green', 'Red', 'NIR', 'SWIR', 'SWIR2', 'NDVI', 'SAVI', 'MSAVI', 'NDMI', 'EVI', 'NBR', 'NBR2', 'TCB', 'TCG', 'TCW')
-    #}
-print(pred_vars)
-       
     models<-agbModeling(rds_models=rds_models,
                             models_id=models_id,
                             in_data=all_train_data,
