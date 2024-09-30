@@ -773,34 +773,27 @@ HtMapping<-function(x=x,y=y,model_list=model_list, tile_num=tile_num, stack=stac
   }
 }
 
-check_var <- function(totals){
-        #calc sd iteratively
-        sd <- totals*0.0
-        nrow <- length(totals)
+partial_sd <- function(arr){
 
-        n <- seq(1, nrow)
-        for (i in 1:nrow){
-            temp_tot <- totals[1:i]
-            if(i>2){
-                 # BUG alert: sd[2]=0, this underestimates the the baseline_var
-                 sd[i] <- sd(temp_tot, na.rm=TRUE)
-            }
-        }
-        #test the variance for the last 10 sds
-            #b_min <- (nrow-20)
-            # BUG alret: if nrow < 11 (nrow-9<2) the lines below will error !!
-            b_max <- (nrow-9)
-            # BUG Alert: this doesn't look at the last 10 (or the the last n) sds as commented 3 lines above.
-            baseline_var <- mean(sd[1:b_max], na.rm=TRUE)
-            print('baseline_var:')
-            print(baseline_var)
-            
-            last_var <- mean(sd[1:nrow], na.rm=TRUE)
-            print(last_var)
-            var_diff <- abs((baseline_var - last_var)/baseline_var)
-            print('var_diff:')
-            print(var_diff)
-            return(var_diff)
+  partial_sd_arr <- rep(0, length(arr) - 1)
+  for(i in 2:length(arr)){
+    partial_sd_arr[i-1] <- sd(arr[1:i], na.rm = T)
+  }
+  return(partial_sd_arr)
+}
+
+sd_change_relative_to_baseline <- function(arr, n){
+  partial_sd_arr <- partial_sd(arr)
+
+  baseline_sd <- mean(tail(partial_sd_arr, n), na.rm=T)
+  full_sd <-  mean(partial_sd_arr, na.rm=T)
+
+  if (baseline_sd)
+    relative_sd_change <-  abs(full_sd - baseline_sd) / baseline_sd
+  else
+    relative_sd_change <-  Inf
+
+  return(relative_sd_change)
 }
 
 DOY_and_solar_filter <- function(tile_data, start_DOY, end_DOY, solar_elevation){
@@ -1015,7 +1008,7 @@ mapBoreal<-function(rds_models,
     var_thresh <- 0.05
     
     if(rep>1){
-        var_diff <- check_var(combined_totals)
+        var_diff <- sd_change_relative_to_baseline(combined_totals, 10) #check_var(combined_totals)
         print('var_diff:')
         print(var_diff)
 
@@ -1023,6 +1016,8 @@ mapBoreal<-function(rds_models,
         #save(combined_totals, file='/projects/lduncanson/testing/test_totals.Rdata')
         #set some maximum number of iterations
         max_iters <- 100
+        # this if statement seems to have no effect. Initially length(combined_totals) = 2
+        # which is < 100 (= max_iters), was it meant to be part of the while loop condition?
         if(length(combined_totals)<max_iters){
             while(var_diff > var_thresh){
             print('Adding more interations...')
