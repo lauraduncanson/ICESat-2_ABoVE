@@ -33,16 +33,12 @@ boreal_vect_fn=${18}
 predict_var=${19}
 max_n=${20}
 pred_vars=${21}
-
-TAR_FILE=${basedir}/../../lib/bio_models_noground.tar
-
-#unpack biomass models tar
-#tar -xvf input/bio_models.tar
+bio_models_tar_fn=${22}
 
 source activate icesat2_boreal
 
 # This will put the *rds in the same dir as the R script
-tar -xf ${TAR_FILE}
+tar -xf ${bio_models_tar_fn} -C ${basedir}/../../lib
 
 # This PWD is wherever the job is run (where the .sh is called from) 
 OUTPUTDIR="${PWD}/output"
