@@ -37,8 +37,7 @@ bio_models_tar_fn=${22}
 
 source activate icesat2_boreal
 
-# This will put the *rds in the same dir as the R script
-tar -xf ${bio_models_tar_fn} -C ${basedir}/../../lib
+tar -xf ${bio_models_tar_fn}
 
 # This PWD is wherever the job is run (where the .sh is called from) 
 OUTPUTDIR="${PWD}/output"
