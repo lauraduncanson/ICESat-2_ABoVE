@@ -1,4 +1,4 @@
-name: icesat2_boreal
+name: icesat2_boreal_test
 channels:
   - conda-forge
   - defaults
@@ -10,21 +10,13 @@ dependencies:
   - fsspec
   - s3fs
   - xmltodict
-  - folium
   - pydantic<2
   - rio-cogeo
   - rio-tiler
-  #- rio-cogeo==2.3.1
-  #- rio-tiler==2.1.4
   - morecantile
   - pystac-client
-  - pygeos
   - rtree
   - numpy
   - pycurl
   - rasterstats
   - pyarrow
-  #- cogeo_mosaic==6.2.0
-#  - r-rockchalk
-#  - r-terra
-#  - r-randomForest
