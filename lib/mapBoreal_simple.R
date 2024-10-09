@@ -149,7 +149,7 @@ applyModels <- function(models=models,
                      model_list=models,
                      tile_num=tile_num,
                      stack=stack,
-                     boreal_poly=boreal_poly) 
+                     boreal_poly=boreal_poly)
             }
             if(predict_var=='Ht'){
                 temp_map<-HtMapping(x=xtable[pred_vars],
@@ -784,8 +784,9 @@ partial_sd <- function(arr){
 
 sd_change_relative_to_baseline <- function(arr, n){
   partial_sd_arr <- partial_sd(arr)
+  paritial_std_arr_last_n_out <- head(partial_sd_arr, max(1, length(arr) - n))
 
-  baseline_sd <- mean(tail(partial_sd_arr, n), na.rm=T)
+  baseline_sd <- mean(paritial_std_arr_last_n_out, na.rm=T)
   full_sd <-  mean(partial_sd_arr, na.rm=T)
 
   if (baseline_sd)
@@ -1008,7 +1009,7 @@ mapBoreal<-function(rds_models,
     var_thresh <- 0.05
     
     if(rep>1){
-        var_diff <- sd_change_relative_to_baseline(combined_totals, 10) #check_var(combined_totals)
+        var_diff <- sd_change_relative_to_baseline(combined_totals, 9)
         print('var_diff:')
         print(var_diff)
 
@@ -1053,7 +1054,7 @@ mapBoreal<-function(rds_models,
                 }    
             rm(new_final_map)
             combined_totals <- c(combined_totals, combined_totals_new)
-            var_diff <- check_var(combined_totals)
+            var_diff <- sd_change_relative_to_baseline(combined_totals, 9)
 
             if(length(combined_totals)>75){
                 var_thresh <- 0.06
@@ -1250,6 +1251,13 @@ LC_mask_file <- '~/Downloads/dps_output/esa_worldcover_v100_2020_34673_cog.tif'
 data_sample_file <- '~/Downloads/dps_output/boreal_train_data_2020_n3.csv'
 boreal_vect <- '~/Downloads/dps_output/wwf_circumboreal_Dissolve.geojson'
 
+# data_table_file <- '~/Downloads/dps_outputs/atl08_006_030m_2020_2020_06_09_filt_covars_merge_neighbors_004104.csv'
+# topo_stack_file <- '~/Downloads/dps_outputs/CopernicusGLO30_4104_cog_topo_stack.tif'
+# LC_mask_file <- '~/Downloads/dps_outputs/esa_worldcover_v100_2020_4104_cog.tif'
+# l8_stack_file <- '~/Downloads/dps_outputs/HLS_4104_07-01_08-31_2020_2020.tif'
+# data_sample_file <- '~/Downloads/dps_outputs/boreal_train_data_2020_n3.csv'
+# boreal_vect <- '~/Downloads/dps_outputs/wwf_circumboreal_Dissolve.geojson'
+
 DO_MASK_WITH_STACK_VARS <- 'TRUE'
 #data_sample_file <- '/projects/my-private-bucket/boreal_train_data_v11.csv'
 iters <- 30
@@ -1264,6 +1272,7 @@ max_n <- 10000
 
 #boreal_vect <- '/projects/shared-buckets/nathanmthomas/boreal_tiles_v003.gpkg'
 predict_var <- 'AGB'
+#predict_var <- 'Ht'
 
 ppside <- as.double(ppside)
 minDOY <- as.double(minDOY)
@@ -1284,6 +1293,7 @@ library(randomForest)
 #library(rgdal)
 library(data.table)
 library(ggplot2)
+library(dplyr)
 library(rlist)
 library(fs)
 library(stringr)
