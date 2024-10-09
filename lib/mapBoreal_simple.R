@@ -162,7 +162,12 @@ applyModels <- function(models=models,
             
             out_map <- temp_map[[1]]
 
-            tile_total <- temp_map[[2]]
+            if (predict_var == 'AGB'){
+              tile_total <- temp_map[[2]]
+            }
+            else {
+              tile_mean <- temp_map[[2]]$Tile_mean
+            }
             rm(temp_map)
         }
         if(predict_var=='Ht'){
