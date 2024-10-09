@@ -1,4 +1,4 @@
-name: icesat2_boreal_test
+name: icesat2_boreal
 channels:
   - conda-forge
   - defaults
