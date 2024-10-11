@@ -162,7 +162,7 @@ applyModels <- function(models=models,
             
             out_map <- temp_map[[1]]
             if(predict_var=='Ht'){
-                tile_mean <- temp_map[[2]]$Tile_mean
+                tile_mean <- temp_map[[2]]$Tile_Mean
             }
             else{
                 tile_total <- temp_map[[2]]
@@ -210,8 +210,8 @@ combine_temp_files <- function(final_map, predict_var, tile_num){
             total_AGB <- apply(total_data, 1, sum, na.rm=TRUE)
             total_AGB_boreal <- apply(total_data_boreal, 1, sum, na.rm=TRUE) 
         } else {
-            total_AGB <- sum(total_data, na.rm=TRUE)
-            total_AGB_boreal <- sum(total_data_boreal, na.rm=TRUE)
+            total_AGB <- total_data
+            total_AGB_boreal <- total_data_boreal
         }
         
         total_AGB_out <- as.data.frame(cbind(total_AGB, total_AGB_boreal))
@@ -220,7 +220,7 @@ combine_temp_files <- function(final_map, predict_var, tile_num){
         out_fn_stem = paste("output/boreal_agb", format(Sys.time(),"%Y%m%d%s"), str_pad(tile_num, 4, pad = "0"), sep="_")
         out_fn_total <- paste0(out_fn_stem, '_total_all.csv')
         write.csv(file=out_fn_total, total_AGB_out, row.names=FALSE)
-        combined_totals <- tile_totals
+        combined_totals <- total_AGB
 
     }
     
@@ -251,11 +251,17 @@ combine_temp_files <- function(final_map, predict_var, tile_num){
                 }    
             }
             #summarize accross subtiles
-            mean_Ht <- apply(total_data, 1, mean, na.rm=TRUE)
-            mean_Ht_boreal <- apply(total_data_boreal, 1, mean, na.rm=TRUE)
+            if (h>1){
+               mean_Ht <- apply(total_data, 1, mean, na.rm=TRUE)
+               mean_Ht_boreal <- apply(total_data_boreal, 1, mean, na.rm=TRUE)
+            }
+            else {
+               mean_Ht <- total_data
+               mean_Ht_boreal <- total_data_boreal
+            }
             mean_Ht_out <- as.data.frame(cbind(mean_Ht, mean_Ht_boreal))
             names(mean_Ht_out) <- c('tile_mean', 'tile_boreal_mean')
-        
+
             out_fn_stem = paste("output/boreal_ht", format(Sys.time(),"%Y%m%d%s"), str_pad(tile_num, 4, pad = "0"), sep="_")
             out_fn_total <- paste0(out_fn_stem, '_mean_all.csv')
             write.csv(file=out_fn_total, mean_Ht_out, row.names=FALSE)
