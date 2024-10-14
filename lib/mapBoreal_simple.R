@@ -1130,13 +1130,6 @@ mapBoreal<-function(rds_models,
             
             #combine original map with new iterations map
             out_map_all <- c(out_map_all, subset(new_final_map[[1]], 3:nlyr(new_final_map[[1]])))
-
-                if(predict_var=='AGB'){
-                    new_tile_totals <- new_final_map[[2]]$Tile_Total
-                }
-                if(predict_var=='Ht'){
-                    new_tile_totals <- new_final_map[[2]]
-                }
             rm(new_final_map)
             combined_totals <- c(combined_totals, combined_totals_new)
             var_diff <- sd_change_relative_to_baseline(combined_totals, 9)
