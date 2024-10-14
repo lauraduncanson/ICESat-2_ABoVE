@@ -166,7 +166,7 @@ applyModels <- function(models=models,
               tile_total <- temp_map[[2]]
             }
             else {
-              tile_mean <- temp_map[[2]]$Tile_mean
+              tile_mean <- temp_map[[2]]$Tile_Mean
             }
             rm(temp_map)
         }
@@ -211,8 +211,8 @@ combine_temp_files <- function(final_map, predict_var, tile_num){
             total_AGB <- apply(total_data, 1, sum, na.rm=TRUE)
             total_AGB_boreal <- apply(total_data_boreal, 1, sum, na.rm=TRUE) 
         } else {
-            total_AGB <- sum(total_data, na.rm=TRUE)
-            total_AGB_boreal <- sum(total_data_boreal, na.rm=TRUE)
+            total_AGB <- total_data
+            total_AGB_boreal <- total_data_boreal
         }
         
         total_AGB_out <- as.data.frame(cbind(total_AGB, total_AGB_boreal))
@@ -221,7 +221,7 @@ combine_temp_files <- function(final_map, predict_var, tile_num){
         out_fn_stem = paste("output/boreal_agb", format(Sys.time(),"%Y%m%d%s"), str_pad(tile_num, 4, pad = "0"), sep="_")
         out_fn_total <- paste0(out_fn_stem, '_total_all.csv')
         write.csv(file=out_fn_total, total_AGB_out, row.names=FALSE)
-        combined_totals <- tile_totals
+        combined_totals <- tatal_AGB
 
     }
     
@@ -229,6 +229,7 @@ combine_temp_files <- function(final_map, predict_var, tile_num){
         print('Height successfully predicted!')
         print('Height mosaics completed!')
         tile_means <- final_map[[2]]
+        print(tile_means)
         # Make a 2-band stack as a COG
 
         out_fn_stem = paste("output/boreal_ht", format(Sys.time(),"%Y%m%d"), str_pad(tile_num, 4, pad = "0"), sep="_")
@@ -249,11 +250,17 @@ combine_temp_files <- function(final_map, predict_var, tile_num){
                     total_data <- cbind(total_data, temp_data$Tile_Mean)
                     total_data_boreal <- cbind(total_data_boreal, temp_data$Boreal_Mean)
                     file.remove(csv_files[h])
-                }    
+                }
             }
             #summarize accross subtiles
-            mean_Ht <- apply(total_data, 1, mean, na.rm=TRUE)
-            mean_Ht_boreal <- apply(total_data_boreal, 1, mean, na.rm=TRUE)
+            if (h>1){
+              mean_Ht <- apply(total_data, 1, mean, na.rm=TRUE)
+              mean_Ht_boreal <- apply(total_data_boreal, 1, mean, na.rm=TRUE)
+            }
+            else{
+              mean_Ht <- total_data
+              mean_Ht_boreal <- total_data_boreal
+            }
             mean_Ht_out <- as.data.frame(cbind(mean_Ht, mean_Ht_boreal))
             names(mean_Ht_out) <- c('tile_mean', 'tile_boreal_mean')
         
@@ -634,10 +641,6 @@ agbMapping<-function(x=x,y=y,model_list=model_list, tile_num=tile_num, stack=sta
         #calculate just the boreal total
 
         boreal_total_temp <- extract(AGB_tot_map, boreal_poly, fun=sum, na.rm=TRUE)
-
-        
-        #AGB_total_boreal <- global(boreal_total_temp, 'sum', na.rm=TRUE)$sum
-        
         AGB_total_boreal <- sum(boreal_total_temp$lyr.1, na.rm=TRUE)
 
         print('boreal_total:')
@@ -719,7 +722,6 @@ HtMapping<-function(x=x,y=y,model_list=model_list, tile_num=tile_num, stack=stac
         map_pred <- mask(map_pred, pred_stack$ValidMask, maskvalues=0, updatevalue=0)   
 
         Ht_mean <- global(map_pred, 'mean', na.rm=TRUE)$mean
-    
         #calculate just the boreal total
         boreal_ht_temp <- extract(map_pred, boreal_poly, fun=mean, na.rm=TRUE)
         Ht_mean_boreal <- boreal_ht_temp$lyr1[1]
@@ -741,7 +743,6 @@ HtMapping<-function(x=x,y=y,model_list=model_list, tile_num=tile_num, stack=stac
         Ht_mean_temp <- global(map_pred_temp, 'mean', na.rm=TRUE)$mean
         map_pred <- c(map_pred, map_pred_temp)
         Ht_mean <- c(Ht_mean, Ht_mean_temp)
-        
         #repeat for just boreal
         boreal_ht_temp <- extract(map_pred_temp, boreal_poly, fun=mean, na.rm=TRUE)
         rm(map_pred_temp)
