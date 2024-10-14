@@ -780,7 +780,6 @@ HtMapping<-function(x=x,y=y,model_list=model_list, tile_num=tile_num, stack=stac
 }
 
 partial_sd <- function(arr){
-
   partial_sd_arr <- rep(0, length(arr) - 1)
   for(i in 2:length(arr)){
     partial_sd_arr[i-1] <- sd(arr[1:i], na.rm = T)
@@ -951,6 +950,50 @@ set_output_file_names <- function(out_fn_stem){
   return(output_file_names)
 }
 
+
+write_ATL08_table <- function(target, df, out_file_path){
+    out_columns <- if(target=='AGB') c('lon', 'lat', 'AGB', 'SE') else c('lon', 'lat', 'RH_98')
+    write.csv(df[, out_columns], file=out_file_path, row.names=FALSE)
+}
+
+write_single_model_summary <- function(df, target, pred_vars, out_fns, nrow_tile){
+    target <- if(target == 'AGB') df$AGB else df$RH_98
+
+    rf_single <- randomForest(y=target, x=df[pred_vars], ntree=NTREE, importance=TRUE, mtry=6)
+    local_model <- lm(rf_single$predicted[1:nrow_tile] ~ target[1:nrow_tile], na.rm=TRUE)
+    saveRDS(rf_single, file=out_fns['model'])
+
+    rsq <- max(rf_single$rsq, na.rm=T)
+    cat('rsq: ', rsq, '\n')
+
+    rsq_local <- summary(local_model)$r.squared
+    cat('rmax_iters <- sq_local: ', rsq_local, '\n')
+
+    na_data <- which(is.na(local_model$predicted==TRUE))
+
+    if(length(na_data) == 0)
+      rmse_local <- sqrt(mean(local_model$residuals^2))
+
+    cat('rmse_local: ', rmse_local, '\n')
+
+    imp_vars <- rf_single$importance
+    out_accuracy <- list(rsq_local, rmse_local, imp_vars)
+    saveRDS(out_accuracy, file=out_fns['stats'])
+}
+
+write_output_raster_map <- function(out_map, out_map_all, output_fn){
+  # change -9999 to NA
+  out_map <- subst(out_map, -9999, NA)
+  out_sd <- app(out_map_all, sd)
+  out_sd <- subst(out_sd, -9999, NA)
+  out_map <- c(out_map, out_sd)
+  NAflag(out_map)
+  options <- c("COMPRESS=LZW", overwrite=TRUE, gdal=c("COMPRESS=LZW", "OVERVIEW_RESAMPLING=AVERAGE"))
+  writeRaster(out_map, filename=output_fn, filetype="COG", gdal=options)
+  cat("Write COG tif: ", output_fn, '\n')
+}
+
+
 mapBoreal<-function(rds_models,
                     models_id,
                     ice2_30_atl08_path, 
@@ -977,9 +1020,9 @@ mapBoreal<-function(rds_models,
     # Get tile num
     tile_num = tail(unlist(strsplit(path_ext_remove(ice2_30_atl08_path), "_")), n=1)
     print("Modelling and mapping boreal AGB")
-    print(paste0("tile: ", tile_num))
-    print(paste0("ATL08 input: ", ice2_30_atl08_path))
-    
+    cat("tile: ", tile_num, '\n')
+    cat("ATL08 input: ", ice2_30_atl08_path, '\n')
+
     tile_data <- read.csv(ice2_30_atl08_path)
 
     if(expand_training)
@@ -987,8 +1030,7 @@ mapBoreal<-function(rds_models,
 
     # Get rid of extra data above max_n
     n_avail <- nrow(tile_data)
-    print('n_avail training:')
-    print(n_avail)
+    cat('n_avail training:', n_avail, '\n')
     
     # if(n_avail > max_n)
     #   tile_data <- reduce_sample_size(tile_data, max_n)
@@ -1000,7 +1042,7 @@ mapBoreal<-function(rds_models,
 
     # take proportion of broad data we want based on local_train_perc
     sample_local <- nrow(tile_data) * (local_train_perc/100)
-    print(c('sample_local:', sample_local))
+    cat('sample_local:', sample_local, '\n')
 
     if (sample_local < min_icesat2_samples)
       tile_data <- reduce_sample_size(tile_data, sample_local)
@@ -1015,9 +1057,9 @@ mapBoreal<-function(rds_models,
 
     str(all_train_data)
     all_train_data <- remove_height_outliers(all_train_data)
-    
+
     tile_data_output <- tile_data # probably not needed
-    print(paste0('table for model training generated with ', nrow(all_train_data), ' observations'))
+    cat('table for model training generated with ', nrow(all_train_data), ' observations\n')
 
     models<-agbModeling(rds_models=rds_models,
                             models_id=models_id,
@@ -1034,7 +1076,7 @@ mapBoreal<-function(rds_models,
     print('model fitting complete!')
 
     final_map <- applyModels(models, stack, pred_vars, predict_var, tile_num)
-    print('after applyModels...............')
+
     xtable <- models[[1]]
 
     if(ppside >= 1){
@@ -1054,8 +1096,7 @@ mapBoreal<-function(rds_models,
     
     if(rep>1){
         var_diff <- sd_change_relative_to_baseline(combined_totals, 9)
-        print('var_diff:')
-        print(var_diff)
+        cat('var_diff:', var_diff, '\n')
 
         #if larger difference, need more models and more iterations
         #save(combined_totals, file='/projects/lduncanson/testing/test_totals.Rdata')
@@ -1095,7 +1136,7 @@ mapBoreal<-function(rds_models,
                 }
                 if(predict_var=='Ht'){
                     new_tile_totals <- new_final_map[[2]]
-                }    
+                }
             rm(new_final_map)
             combined_totals <- c(combined_totals, combined_totals_new)
             var_diff <- sd_change_relative_to_baseline(combined_totals, 9)
@@ -1112,75 +1153,17 @@ mapBoreal<-function(rds_models,
             }
         }
     }
-    
+
     out_fn_stem <- combine_csv_outpus(predict_var, tile_num)
     print('AGB successfully predicted!')
     print('mosaics completed!')
 
-    # Setup output filenames
     out_fns <- set_output_file_names(out_fn_stem)
 
-    print(paste0("Write tmp tif: ", out_fns['tif']))
-    #change -9999 to NA
-    #out_map <- classify(out_map, cbind(-9999.000, NA))
-    out_map <- subst(out_map, -9999, NA)
-    out_sd <- app(out_map_all, sd)
-    out_sd <- subst(out_sd, -9999, NA)
-    out_map <- c(out_map, out_sd)
-    NAflag(out_map)
-    
-    tifoptions <- c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "OVERVIEW_RESAMPLING=AVERAGE")
-    writeRaster(out_map, filename=out_fns['cog'], filetype="COG", gdal=c("COMPRESS=LZW", overwrite=TRUE, gdal=c("COMPRESS=LZW", "OVERVIEW_RESAMPLING=AVERAGE")))
+    write_output_raster_map(out_map, out_map_all, out_fns['cog'])
+    write_ATL08_table(predict_var, xtable, out_fns['train'])
+    write_single_model_summary(xtable, predict_var, pred_vars, out_fns, nrow(tile_data_output))
 
-    print(paste0("Write COG tif: ", out_fns['cog']))
-
-    nrow_tile <- nrow(tile_data_output)
-
-     #Write out_table of ATL08 AGB as a csv
-    if(predict_var=='AGB'){
-
-        out_table <- xtable[,c('lon', 'lat', 'AGB', 'SE')]
-        write.csv(out_table, file=out_fns['train'], row.names=FALSE)
-        str(xtable)
-        rf_single <- randomForest(y=xtable$AGB, x=xtable[pred_vars], ntree=NTREE, importance=TRUE, mtry=6)
-        local_model <- lm(rf_single$predicted[1:nrow_tile] ~ xtable$AGB[1:nrow_tile], na.rm=TRUE)
-
-    }
-    
-    if(predict_var=='Ht'){
-        out_table = xtable[c('lon','lat','RH_98')]    
-        write.csv(out_table, file=out_fns['train'], row.names=FALSE)
-        rf_single <- randomForest(y=xtable$RH_98, x=xtable[pred_vars], ntree=NTREE, importance=TRUE, mtry=6)
-        local_model <- lm(rf_single$predicted[1:nrow_tile] ~ xtable$RH_98[1:nrow_tile], na.rm=TRUE)
-
-    }
-
-    #write output for model accuracy and importance variables for single model
-    #create one single model for stats
-    
-    saveRDS(rf_single, file=out_fns['model'])
-    rsq <- max(rf_single$rsq, na.rm=T)
-    print('rsq:')
-    print(rsq)
-    #calc rsq only over local data
-    rsq_local <- summary(local_model)$r.squared
-    print('rmax_iters <- sq_local:')
-    print(rsq_local)
-    
-    na_data <- which(is.na(local_model$predicted==TRUE))
-
-    if(length(na_data)>1){
-        #rmse_local <- sqrt(mean(local_model$residuals[-na_data]^2))
-    } else {
-        rmse_local <- sqrt(mean(local_model$residuals^2))
-    }
-    print('rmse_local:')
-    print(rmse_local)
-    
-    imp_vars <- rf_single$importance
-    out_accuracy <- list(rsq_local, rmse_local, imp_vars)
-    saveRDS(out_accuracy, file=out_fns['stats'])
-    
     print("Returning names of COG and CSV...")
     return(list(out_fns['cog'], out_fns['csv']))
 }
