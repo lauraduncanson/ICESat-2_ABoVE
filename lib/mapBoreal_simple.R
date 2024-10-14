@@ -1078,11 +1078,8 @@ mapBoreal<-function(rds_models,
     final_map <- applyModels(models, stack, pred_vars, predict_var, tile_num)
 
     xtable <- models[[1]]
+    combined_totals <- combine_temp_files(final_map, predict_var, tile_num)
 
-    if(ppside >= 1){
-        combined_totals <- combine_temp_files(final_map, predict_var, tile_num)
-    }
-    
     #subset out the iteration bands
     out_map_all <- subset(final_map[[1]], 3:nlyr(final_map[[1]]))
     
@@ -1120,10 +1117,7 @@ mapBoreal<-function(rds_models,
                             predict_var=predict_var)
                 
             new_final_map <- applyModels(new_models, stack, pred_vars, predict_var, tile_num)
-
-            if(ppside >= 1){
-                combined_totals_new <- combine_temp_files(new_final_map, predict_var, tile_num)
-            }
+            combined_totals_new <- combine_temp_files(new_final_map, predict_var, tile_num)
                 
             temp <- new_final_map[[2]]
             
