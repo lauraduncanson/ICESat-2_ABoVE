@@ -913,6 +913,44 @@ remove_height_outliers <- function(all_train_data){
   )
 }
 
+combine_csv_outpus <- function(target, tile_num){
+  if (target == 'AGB'){
+    pattern <- '_total_all.csv'
+    names <- c('tile_total', 'tile_boreal_total')
+    output_prefix <- 'output/boreal_agb'
+    output_suffix <- '_total_iters.csv'
+  }
+  else if (target == 'Ht'){
+    pattern <- '_mean_all.csv'
+    names <- c('tile_mean', 'tile_boreal_mean')
+    output_prefix <- 'output/boreal_ht'
+    output_suffix <- '_mean_iters.csv'
+  }
+  else {stop('Target should be one of AGB or Ht')}
+
+  csv_files <- list.files(path='output', pattern=pattern, full.names=TRUE)
+
+  out_df <- bind_rows(lapply(csv_files, read.csv))
+  names(out_df) <- names
+  file.remove(csv_files)
+
+  out_fn_stem = paste(output_prefix, format(Sys.time(),"%Y%m%d%s"), str_pad(tile_num, 4, pad = "0"), sep="_")
+  output_fn = paste0(out_fn_stem, output_suffix)
+  write.csv(file=output_fn, out_df, row.names=FALSE)
+
+  return(out_fn_stem)
+}
+
+set_output_file_names <- function(out_fn_stem){
+  fn_types <- c('tmp.tif', '.tif', '.csv', '_train_data.csv', '_stats.Rds', '_model.Rds')
+  output_file_names <- paste0(out_fn_stem, fn_types)
+
+  names <- c('tif', 'cog', 'csv', 'train', 'stats', 'model')
+  names(output_file_names) <- names
+
+  return(output_file_names)
+}
+
 mapBoreal<-function(rds_models,
                     models_id,
                     ice2_30_atl08_path, 
@@ -1073,101 +1111,36 @@ mapBoreal<-function(rds_models,
                 }
             }
         }
-    }                             
-    
-    #combine all output total files into one
-    if(predict_var=='AGB'){
-        #read csv files
-        csv_files <- list.files(path='output', pattern='_total_all.csv', full.names=TRUE)
-        n_files <- length(csv_files)
-        print('length all files:')
-        print(n_files)
-        for(h in 1:n_files){
-            if(h==1){
-                tile_data <- read.csv(csv_files[h])
-                file.remove(csv_files[h])
-            }
-            if(h>1){
-                temp_data <- read.csv(csv_files[h])
-                tile_data <- rbind(tile_data, temp_data)
-                file.remove(csv_files[h])
-            }    
-        }
-       
-        total_AGB_out <- as.data.frame(tile_data)
-        names(total_AGB_out) <- c('tile_total', 'tile_boreal_total')
-        
-        out_fn_stem = paste("output/boreal_agb", format(Sys.time(),"%Y%m%d%s"), str_pad(tile_num, 4, pad = "0"), sep="_")
-        out_fn_total <- paste0(out_fn_stem, '_total_iters.csv')
-        write.csv(file=out_fn_total, total_AGB_out, row.names=FALSE)
-    
     }
-    if(predict_var=='Ht'){
-         #read csv files
-        csv_files <- list.files(path='output', pattern='_mean_all.csv', full.names=TRUE)
-        n_files <- length(csv_files)
-        print('length all files:')
-        print(n_files)
-        for(h in 1:n_files){
-            if(h==1){
-                tile_data <- read.csv(csv_files[h])
-                file.remove(csv_files[h])
-            }
-            if(h>1){
-                temp_data <- read.csv(csv_files[h])
-                tile_data <- rbind(tile_data, temp_data)
-                file.remove(csv_files[h])
-            }    
-        }
-       
-        mean_AGB_out <- as.data.frame(tile_data)
-        names(mean_AGB_out) <- c('tile_mean', 'tile_boreal_mean')
-        
-        out_fn_stem = paste("output/boreal_ht", format(Sys.time(),"%Y%m%d%s"), str_pad(tile_num, 4, pad = "0"), sep="_")
-        out_fn_total <- paste0(out_fn_stem, '_mean_iters.csv')
-        write.csv(file=out_fn_total, mean_AGB_out, row.names=FALSE)
-        
-    }
-        
-        print('AGB successfully predicted!')
     
-        print('mosaics completed!')
-    
-    # Setup output filenames
-    out_tif_fn <- paste(out_fn_stem, 'tmp.tif', sep="" )
-    out_cog_fn <- paste(out_fn_stem, '.tif', sep="" )
-    out_csv_fn <- paste0(out_fn_stem, '.csv' )
-    out_train_fn <- paste0(out_fn_stem, '_train_data.csv', sep="")
-    out_stats_fn <- paste0(out_fn_stem, '_stats.Rds', sep="")
-    out_model_fn <- paste0(out_fn_stem, '_model.Rds', sep="")
+    out_fn_stem <- combine_csv_outpus(predict_var, tile_num)
+    print('AGB successfully predicted!')
+    print('mosaics completed!')
 
-    print(paste0("Write tmp tif: ", out_tif_fn))
+    # Setup output filenames
+    out_fns <- set_output_file_names(out_fn_stem)
+
+    print(paste0("Write tmp tif: ", out_fns['tif']))
     #change -9999 to NA
     #out_map <- classify(out_map, cbind(-9999.000, NA))
     out_map <- subst(out_map, -9999, NA)
-
     out_sd <- app(out_map_all, sd)
-
     out_sd <- subst(out_sd, -9999, NA)
-
     out_map <- c(out_map, out_sd)
-
-                  
     NAflag(out_map)
     
     tifoptions <- c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "OVERVIEW_RESAMPLING=AVERAGE")
-    writeRaster(out_map, filename=out_cog_fn, filetype="COG", gdal=c("COMPRESS=LZW", overwrite=TRUE, gdal=c("COMPRESS=LZW", "OVERVIEW_RESAMPLING=AVERAGE")))
-    #writeRaster(out_map, filename=out_cog_fn, overwrite=TRUE)
-    
-    print(paste0("Write COG tif: ", out_cog_fn))
-          
+    writeRaster(out_map, filename=out_fns['cog'], filetype="COG", gdal=c("COMPRESS=LZW", overwrite=TRUE, gdal=c("COMPRESS=LZW", "OVERVIEW_RESAMPLING=AVERAGE")))
+
+    print(paste0("Write COG tif: ", out_fns['cog']))
+
     nrow_tile <- nrow(tile_data_output)
 
      #Write out_table of ATL08 AGB as a csv
     if(predict_var=='AGB'){
 
         out_table <- xtable[,c('lon', 'lat', 'AGB', 'SE')]
-        write.csv(out_table, file=out_train_fn, row.names=FALSE)
+        write.csv(out_table, file=out_fns['train'], row.names=FALSE)
         str(xtable)
         rf_single <- randomForest(y=xtable$AGB, x=xtable[pred_vars], ntree=NTREE, importance=TRUE, mtry=6)
         local_model <- lm(rf_single$predicted[1:nrow_tile] ~ xtable$AGB[1:nrow_tile], na.rm=TRUE)
@@ -1176,7 +1149,7 @@ mapBoreal<-function(rds_models,
     
     if(predict_var=='Ht'){
         out_table = xtable[c('lon','lat','RH_98')]    
-        write.csv(out_table, file=out_train_fn, row.names=FALSE)
+        write.csv(out_table, file=out_fns['train'], row.names=FALSE)
         rf_single <- randomForest(y=xtable$RH_98, x=xtable[pred_vars], ntree=NTREE, importance=TRUE, mtry=6)
         local_model <- lm(rf_single$predicted[1:nrow_tile] ~ xtable$RH_98[1:nrow_tile], na.rm=TRUE)
 
@@ -1185,14 +1158,13 @@ mapBoreal<-function(rds_models,
     #write output for model accuracy and importance variables for single model
     #create one single model for stats
     
-    saveRDS(rf_single, file=out_model_fn)
+    saveRDS(rf_single, file=out_fns['model'])
     rsq <- max(rf_single$rsq, na.rm=T)
     print('rsq:')
     print(rsq)
     #calc rsq only over local data
     rsq_local <- summary(local_model)$r.squared
-    print('r
-max_iters <- sq_local:')
+    print('rmax_iters <- sq_local:')
     print(rsq_local)
     
     na_data <- which(is.na(local_model$predicted==TRUE))
@@ -1207,10 +1179,10 @@ max_iters <- sq_local:')
     
     imp_vars <- rf_single$importance
     out_accuracy <- list(rsq_local, rmse_local, imp_vars)
-    saveRDS(out_accuracy, file=out_stats_fn)
+    saveRDS(out_accuracy, file=out_fns['stats'])
     
     print("Returning names of COG and CSV...")
-    return(list(out_cog_fn, out_csv_fn))
+    return(list(out_fns['cog'], out_fns['csv']))
 }
 
 # ####################### Run code ##############################
