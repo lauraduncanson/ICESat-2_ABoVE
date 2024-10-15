@@ -179,91 +179,36 @@ applyModels <- function(models=models,
         return(out_data)
     }
 
+combine_temp_files <- function(target, tile_num){
+  if (target == 'AGB'){
+    pattern <- '_total.csv'
+    summary_fun <- sum
+    names <- c('tile_total', 'tile_boreal_total')
+    output_prefix <- 'output/boreal_agb'
+    output_suffix <- '_total_all.csv'
+  }
+  else if (target == 'Ht'){
+    pattern <- '_mean.csv'
+    summary_fun <- mean
+    names <- c('tile_mean', 'tile_boreal_mean')
+    output_prefix <- 'output/boreal_ht'
+    output_suffix <- '_mean_all.csv'
+  }
+  else {stop('Target should be one of AGB or Ht')}
 
+  csv_files <- list.files(path='output', pattern=pattern, full.names=TRUE)
+  all_data <- bind_cols(lapply(csv_files, read.csv))
+  file.remove(csv_files)
 
-combine_temp_files <- function(predict_var, tile_num){
-        if(predict_var=='AGB'){
-        #read in all csv files from output, combine for tile totals
-            #read csv files
-            csv_files <- list.files(path='output', pattern='_total.csv', full.names=TRUE)
-            n_files <- length(csv_files)
-            for(h in 1:n_files){
-                if(h==1){
-                    tile_data <- read.csv(csv_files[h])
-                    total_data <- tile_data$Tile_Total
-                    total_data_boreal <- tile_data$Boreal_Total
-                    file.remove(csv_files[h])
-                }
-                if(h>1){
-                    temp_data <- read.csv(csv_files[h])
-                    total_data <- cbind(total_data, temp_data$Tile_Total)
-                    total_data_boreal <- cbind(total_data_boreal, temp_data$Boreal_Total)
-                    file.remove(csv_files[h])
+  combined_boreal <- all_data |> select(matches('Boreal')) |> apply(1, summary_fun, na.rm = TRUE)
+  combined_tile <- all_data |> select(matches('Tile')) |> apply(1, summary_fun, na.rm = TRUE)
+  combined <- data.frame(cbind(combined_tile, combined_boreal))
+  names(combined) <- names
 
-                }    
-            }
-        
-        
-        #summarize accross models
-        if(h>1){
-            total_AGB <- apply(total_data, 1, sum, na.rm=TRUE)
-            total_AGB_boreal <- apply(total_data_boreal, 1, sum, na.rm=TRUE) 
-        } else {
-            total_AGB <- total_data
-            total_AGB_boreal <- total_data_boreal
-        }
-        
-        total_AGB_out <- as.data.frame(cbind(total_AGB, total_AGB_boreal))
-        names(total_AGB_out) <- c('tile_total', 'tile_boreal_total')
-        
-        out_fn_stem = paste("output/boreal_agb", format(Sys.time(),"%Y%m%d%s"), str_pad(tile_num, 4, pad = "0"), sep="_")
-        out_fn_total <- paste0(out_fn_stem, '_total_all.csv')
-        write.csv(file=out_fn_total, total_AGB_out, row.names=FALSE)
-        combined_totals <- tatal_AGB
-
-    }
-    
-    if(predict_var=='Ht'){
-        print('Height successfully predicted!')
-        print('Height mosaics completed!')
-        out_fn_stem = paste("output/boreal_ht", format(Sys.time(),"%Y%m%d"), str_pad(tile_num, 4, pad = "0"), sep="_")
-        
-        #read in all csv files from output, combine for tile totals
-            #read csv files
-            csv_files <- list.files(path='output', pattern='_mean.csv', full.names=TRUE)
-            n_files <- length(csv_files)
-            for(h in 1:n_files){
-                if(h==1){
-                    tile_data <- read.csv(csv_files[h])
-                    total_data <- tile_data$Tile_Mean
-                    total_data_boreal <- tile_data$Boreal_Mean
-                    file.remove(csv_files[h])
-                }
-                if(h>1){
-                    temp_data <- read.csv(csv_files[h])
-                    total_data <- cbind(total_data, temp_data$Tile_Mean)
-                    total_data_boreal <- cbind(total_data_boreal, temp_data$Boreal_Mean)
-                    file.remove(csv_files[h])
-                }
-            }
-            #summarize accross subtiles
-            if (h>1){
-              mean_Ht <- apply(total_data, 1, mean, na.rm=TRUE)
-              mean_Ht_boreal <- apply(total_data_boreal, 1, mean, na.rm=TRUE)
-            }
-            else{
-              mean_Ht <- total_data
-              mean_Ht_boreal <- total_data_boreal
-            }
-            mean_Ht_out <- as.data.frame(cbind(mean_Ht, mean_Ht_boreal))
-            names(mean_Ht_out) <- c('tile_mean', 'tile_boreal_mean')
-        
-            out_fn_stem = paste("output/boreal_ht", format(Sys.time(),"%Y%m%d%s"), str_pad(tile_num, 4, pad = "0"), sep="_")
-            out_fn_total <- paste0(out_fn_stem, '_mean_all.csv')
-            write.csv(file=out_fn_total, mean_Ht_out, row.names=FALSE)
-            combined_totals <- mean_Ht
-    }
-    return(combined_totals)
+  out_fn_stem = paste(output_prefix, format(Sys.time(),"%Y%m%d%s"), str_pad(tile_num, 4, pad = "0"), sep="_")
+  out_fn <- paste0(out_fn_stem, output_suffix)
+  write.csv(file=out_fn, combined, row.names=FALSE)
+  return(combined_tile)
 }
 
 GEDI2AT08AGB<-function(rds_models,models_id, in_data, offset=100, DO_MASK=FALSE, one_model=TRUE, max_n=5000.0, sample=TRUE){
