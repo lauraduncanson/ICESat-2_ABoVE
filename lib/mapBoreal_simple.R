@@ -181,10 +181,8 @@ applyModels <- function(models=models,
 
 
 
-combine_temp_files <- function(final_map, predict_var, tile_num){
+combine_temp_files <- function(predict_var, tile_num){
         if(predict_var=='AGB'){
-        tile_totals <- final_map[[2]]$Tile_Total
-        
         #read in all csv files from output, combine for tile totals
             #read csv files
             csv_files <- list.files(path='output', pattern='_total.csv', full.names=TRUE)
@@ -228,10 +226,6 @@ combine_temp_files <- function(final_map, predict_var, tile_num){
     if(predict_var=='Ht'){
         print('Height successfully predicted!')
         print('Height mosaics completed!')
-        tile_means <- final_map[[2]]
-        print(tile_means)
-        # Make a 2-band stack as a COG
-
         out_fn_stem = paste("output/boreal_ht", format(Sys.time(),"%Y%m%d"), str_pad(tile_num, 4, pad = "0"), sep="_")
         
         #read in all csv files from output, combine for tile totals
@@ -1028,13 +1022,7 @@ mapBoreal<-function(rds_models,
     if(expand_training)
       tile_data <- expand_training_around_growing_season(tile_data, minDOY, maxDOY, max_sol_el, min_icesat2_samples)
 
-    # Get rid of extra data above max_n
-    n_avail <- nrow(tile_data)
-    cat('n_avail training:', n_avail, '\n')
-    
-    # if(n_avail > max_n)
-    #   tile_data <- reduce_sample_size(tile_data, max_n)
-
+    cat('n_avail training:', nrow(tile_data), '\n')
     tile_data <- remove_stale_columns(tile_data, c("binsize", "num_bins"))
     broad_data <- read.csv(ice2_30_sample_path)
     broad_data <- remove_stale_columns(broad_data, c("X__index_level_0__", "geometry"))
@@ -1078,7 +1066,7 @@ mapBoreal<-function(rds_models,
     final_map <- applyModels(models, stack, pred_vars, predict_var, tile_num)
 
     xtable <- models[[1]]
-    combined_totals <- combine_temp_files(final_map, predict_var, tile_num)
+    combined_totals <- combine_temp_files(predict_var, tile_num)
 
     #subset out the iteration bands
     out_map_all <- subset(final_map[[1]], 3:nlyr(final_map[[1]]))
@@ -1117,7 +1105,7 @@ mapBoreal<-function(rds_models,
                             predict_var=predict_var)
                 
             new_final_map <- applyModels(new_models, stack, pred_vars, predict_var, tile_num)
-            combined_totals_new <- combine_temp_files(new_final_map, predict_var, tile_num)
+            combined_totals_new <- combine_temp_files(predict_var, tile_num)
                 
             temp <- new_final_map[[2]]
             
