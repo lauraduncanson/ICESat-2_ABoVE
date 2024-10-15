@@ -1051,10 +1051,7 @@ mapBoreal<-function(rds_models,
                 
             new_final_map <- applyModels(new_models, stack, pred_vars, predict_var, tile_num)
             combined_totals_new <- combine_temp_files(predict_var, tile_num)
-                
-            temp <- new_final_map[[2]]
-            
-            
+
             #combine original map with new iterations map
             out_map_all <- c(out_map_all, subset(new_final_map[[1]], 3:nlyr(new_final_map[[1]])))
             rm(new_final_map)
