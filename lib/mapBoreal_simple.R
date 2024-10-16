@@ -116,8 +116,7 @@ applyModels <- function(models=models,
              }
              
              if(predict_var=='Ht'){
-                 maps<-HtMapping(x=xtable[pred_vars],
-                         y=y,
+                 maps<-HtMapping(
                          model_list=models,
                          tile_num=tile_num,
                          stack=tile_stack,
@@ -152,8 +151,7 @@ applyModels <- function(models=models,
                      boreal_poly=boreal_poly)
             }
             if(predict_var=='Ht'){
-                temp_map<-HtMapping(x=xtable[pred_vars],
-                     y=y,
+                temp_map<-HtMapping(
                      model_list=models,
                      tile_num=tile_num,
                      stack=stack,
@@ -573,7 +571,7 @@ agbMapping<-function(x=x,y=y,model_list=model_list, tile_num=tile_num, stack=sta
         AGB_tot_map <- app(map_pred, total_convert)
         print('str AGB tot:')
         AGB_total <- global(AGB_tot_map, 'sum', na.rm=TRUE)$sum
-        
+
         #test print
         print('AGB_total:')
         print(AGB_total)
@@ -646,76 +644,57 @@ print('boreal_extract:')
     }
 
   return(agb_maps)
-  }
+    }
 }
 
+HtMapping<-function(model_list=model_list, tile_num=tile_num, stack=stack, boreal_poly=boreal_poly){
+  pred_stack <- na.omit(stack)
+  if(length(unique(values(pred_stack$NDVI))) <= 1)
+    stop('Warning: only one unique NDVI value in input stack')
 
-HtMapping<-function(x=x,y=y,model_list=model_list, tile_num=tile_num, stack=stack, boreal_poly=boreal_poly, output){
-    #predict directly on raster using terra
-    pred_stack <- na.omit(stack)
+  map_pred = c()
+  Ht_mean = c()
+  Ht_mean_boreal = c()
+  n_models = length(model_list)
 
-    if(length(unique(values(pred_stack$NDVI)))>1){
-        map_pred <- predict(pred_stack, model_list[[1]], na.rm=TRUE)
-        #set slope and valid mask to zero
-        map_pred <- mask(map_pred, pred_stack$slopemask, maskvalues=0, updatevalue=0)
-        map_pred <- mask(map_pred, pred_stack$ValidMask, maskvalues=0, updatevalue=0)   
+  for (model_i in model_list) {
+    map_pred_i <- predict(pred_stack, model_i, na.rm=TRUE)
+    # set slope and valid mask to zero
+    map_pred_i <- mask(map_pred_i, pred_stack$slopemask, maskvalues=0, updatevalue=0)
+    map_pred_i <- mask(map_pred_i, pred_stack$ValidMask, maskvalues=0, updatevalue=0)
 
-        Ht_mean <- global(map_pred, 'mean', na.rm=TRUE)$mean
-        #calculate just the boreal total
-        boreal_ht_temp <- extract(map_pred, boreal_poly, fun=mean, na.rm=TRUE)
-        Ht_mean_boreal <- boreal_ht_temp$lyr1[1]
-        rm(boreal_ht_temp)
-        
-    #loop over predicting for tile with each model in list
-    n_models <- length(model_list)
-    print('n_models:')
-    print(n_models)
-    if(n_models>1){
-        for (i in 2:length(model_list)){
-        fit.rf <- model_list[[i]]
-        #create raster
-        map_pred_temp <- predict(pred_stack, fit.rf, na.rm=TRUE)
-        #set slope and valid mask to zero
-        map_pred_temp <- mask(map_pred_temp, pred_stack$slopemask, maskvalues=0, updatevalue=0)
-        map_pred_temp <- mask(map_pred_temp, pred_stack$ValidMask, maskvalues=0, updatevalue=0)
-        
-        Ht_mean_temp <- global(map_pred_temp, 'mean', na.rm=TRUE)$mean
-        map_pred <- c(map_pred, map_pred_temp)
-        Ht_mean <- c(Ht_mean, Ht_mean_temp)
-        #repeat for just boreal
-        boreal_ht_temp <- extract(map_pred_temp, boreal_poly, fun=mean, na.rm=TRUE)
-        rm(map_pred_temp)
+    Ht_mean_i <- global(map_pred_i, 'mean', na.rm=TRUE)$mean
+    map_pred <- c(map_pred, map_pred_i)
+    Ht_mean <- c(Ht_mean, Ht_mean_i)
 
-        Ht_boreal_temp <- boreal_ht_temp$lyr1[1]
-        Ht_mean_boreal <- c(Ht_mean_boreal, Ht_boreal_temp)
-        rm(boreal_ht_temp)        
-        }
-    #take the average and sd per pixel
-    #mean_map <- app(map_pred, mean)
+    # repeat for just boreal
+    boreal_ht_i <- extract(map_pred_i, boreal_poly, fun=mean, na.rm=TRUE)
+    Ht_boreal_i <- boreal_ht_i$lyr1[1]
+    Ht_mean_boreal <- c(Ht_mean_boreal, Ht_boreal_i)
+  }
+  map_pred <- rast(map_pred)
+
+  if (n_models > 1)
     sd_map <- app(map_pred, sd)
-    }
-    mean_map <- map_pred[[1]]
+  # not actually the mean, to reduce edge noise, maybe replace with median or a trimmed mean
+  mean_map <- map_pred[[1]]
 
-    #model with all data for mapping
- 
-    Ht_mean_out <- as.data.frame(cbind(Ht_mean, Ht_mean_boreal))
-    names(Ht_mean_out) <- c('Tile_Mean', 'Boreal_Mean')
+  Ht_mean_out <- as.data.frame(cbind(Ht_mean, Ht_mean_boreal))
+  names(Ht_mean_out) <-  c('Tile_Mean', 'Boreal_Mean')
+  saveDataFrame(Ht_mean_out, 'ht', tile_num, '_mean')
 
-    out_fn_stem = paste("output/boreal_ht", format(Sys.time(),"%Y%m%d%s"), str_pad(tile_num, 4, pad = "0"), sep="_")
-
-    out_fn_total <- paste0(out_fn_stem, '_mean.csv')
-
-    write.csv(file=out_fn_total, Ht_mean_out, row.names=FALSE)
-
-    if(n_models>1){
-        ht_maps <- list(c(mean_map, sd_map, map_pred), Ht_mean_out)
-
-    } else{
-        ht_maps <- list(c(mean_map), Ht_mean_out)
-    }
+  if(n_models>1)
+    ht_maps <- list(c(mean_map, sd_map, map_pred), Ht_mean_out)
+  else
+    ht_maps <- list(c(mean_map), Ht_mean_out)
 
   return(ht_maps)
-  }
+}
+
+saveDataFrame <- function(df, product, tile_num, suffix){
+  out_fn_stem = paste("output/boreal", product, format(Sys.time(),"%Y%m%d%s"), str_pad(tile_num, 4, pad = "0"), sep="_")
+  out_fn <- paste0(out_fn_stem, suffix, '.csv')
+  write.csv(file=out_fn, df, row.names=FALSE)
 }
 
 partial_sd <- function(arr){
