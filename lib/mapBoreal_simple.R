@@ -413,7 +413,7 @@ stratRandomSample<-function(agb=y,breaks, p){
 }
 
 # modeling - fit a number of models and return as a list of models
-agbModeling<-function(rds_models, models_id, in_data, pred_vars, offset=100, DO_MASK, se=NULL, rep=100,s_train=70, strat_random=TRUE,boreal_poly=boreal_poly, output, predict_var){
+agbModeling<-function(rds_models, models_id, in_data, pred_vars, offset=100, DO_MASK, rep=100, predict_var){
     # apply GEDI models for prediction
     
     xtable_predict<-GEDI2AT08AGB(rds_models=rds_models,
@@ -895,10 +895,7 @@ mapBoreal<-function(rds_models,
                             pred_vars=pred_vars,
                             offset=offset,
                             DO_MASK=DO_MASK,
-                            s_train=s_train,
                             rep=rep,
-                            strat_random=strat_random,
-                            boreal_poly=boreal_poly,
                             predict_var=predict_var)
     
     print('model fitting complete!')
@@ -938,10 +935,7 @@ mapBoreal<-function(rds_models,
                             pred_vars=pred_vars,
                             offset=offset,
                             DO_MASK=DO_MASK,
-                            s_train=s_train,
                             rep=10,
-                            strat_random=strat_random,
-                            boreal_poly=boreal_poly,
                             predict_var=predict_var)
                 
             new_final_map <- applyModels(new_models, stack, pred_vars, predict_var, tile_num)
