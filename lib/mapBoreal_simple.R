@@ -92,8 +92,7 @@ applyModels <- function(models=models,
              print('tile number:')
              print(tile)
               if(predict_var=='AGB'){
-                maps<-agbMapping(x=xtable[pred_vars],
-                         y=y,
+                maps<-agb_mapping(
                          model_list=models,
                          tile_num=tile_num,
                          stack=tile_stack,
@@ -116,7 +115,7 @@ applyModels <- function(models=models,
              }
              
              if(predict_var=='Ht'){
-                 maps<-HtMapping(
+                 maps<-ht_mapping(
                          model_list=models,
                          tile_num=tile_num,
                          stack=tile_stack,
@@ -143,15 +142,14 @@ applyModels <- function(models=models,
            }
         if (ppside == 1){
             if(predict_var=='AGB'){
-               temp_map<-agbMapping(x=xtable[pred_vars],
-                     y=y,
+               temp_map<-agb_mapping(
                      model_list=models,
                      tile_num=tile_num,
                      stack=stack,
                      boreal_poly=boreal_poly)
             }
             if(predict_var=='Ht'){
-                temp_map<-HtMapping(
+                temp_map<-ht_mapping(
                      model_list=models,
                      tile_num=tile_num,
                      stack=stack,
@@ -550,146 +548,64 @@ SplitRas <- function(raster,ppside,save){
   return(r_list)
 }
 
-
-# mapping - apply the list of models to a set of sub-tiles, compute AGB, SD, 5th & 95th percentiles 
-
-agbMapping<-function(x=x,y=y,model_list=model_list, tile_num=tile_num, stack=stack, boreal_poly=boreal_poly, output){
-    
-    #predict directly on raster using terra
-    pred_stack <- na.omit(stack)
-    rm(stack)
-    
-    if(length(unique(values(pred_stack$NDVI)))>1){
-        map_pred <- predict(pred_stack, model_list[[1]], na.rm=TRUE)
-        #set slope and valid mask to zero
-
-        map_pred <- mask(map_pred, pred_stack$slopemask, maskvalues=0, updatevalue=0)
-        map_pred <- mask(map_pred, pred_stack$ValidMask, maskvalues=0, updatevalue=0)   
-
-        #convert to total map (Pg, values per cell will be extremely small)
-        total_convert <- function(x){(x*0.09)/1000000000}
-        AGB_tot_map <- app(map_pred, total_convert)
-        print('str AGB tot:')
-        AGB_total <- global(AGB_tot_map, 'sum', na.rm=TRUE)$sum
-
-        #test print
-        print('AGB_total:')
-        print(AGB_total)
-        #calculate just the boreal total
-
-        boreal_total_temp <- extract(AGB_tot_map, boreal_poly, fun=sum, na.rm=TRUE)
-        AGB_total_boreal <- sum(boreal_total_temp$lyr.1, na.rm=TRUE)
-
-        print('boreal_total:')
-        print(AGB_total_boreal)
-        rm(AGB_tot_map)
-        n_models <- length(model_list)
-        if(n_models>1){
-            #loop over predicting for tile with each model in list
-        for (i in 2:length(model_list)){
-            fit.rf <- model_list[[i]]
-            
-            #create raster
-            map_pred_temp <- predict(pred_stack, fit.rf, na.rm=TRUE)
-            
-            #set slope and valid mask to zero
-
-            map_pred_temp <- mask(map_pred_temp, pred_stack$slopemask, maskvalues=0, updatevalue=0)
-            map_pred_temp <- mask(map_pred_temp, pred_stack$ValidMask, maskvalues=0, updatevalue=0)
-
-            map_pred_tot_temp <- app(map_pred_temp, total_convert)
-            AGB_total_temp <- global(map_pred_tot_temp, 'sum', na.rm=TRUE)$sum
-            
-            map_pred <- c(map_pred, map_pred_temp)
-            AGB_total <- c(AGB_total, AGB_total_temp)
-        
-            #repeat for just boreal
-            #boreal_map_temp <- mask(map_pred_tot_temp, boreal_poly, updatevalue=0)
-            
-            boreal_total_temp <- extract(map_pred_tot_temp, boreal_poly, fun=sum, na.rm=TRUE)
-print('boreal_extract:')
-            rm(map_pred_tot_temp)
-            rm(map_pred_temp)
-
-            #AGB_boreal_temp <- global(boreal_map_temp$lyr1, 'sum', na.rm=TRUE)$sum
-            AGB_boreal_temp <- sum(boreal_total_temp$lyr.1, na.rm=TRUE)
-            AGB_total_boreal <- c(AGB_total_boreal, AGB_boreal_temp)
-        }
-    #take the average and sd per pixel
-    #mean_map <- app(map_pred, mean)
-    sd_map <- app(map_pred, sd)
-    }
-    
-    #model with all data for mapping
-    mean_map <- map_pred[[1]]
-    
-  #else {
-   #     #this is if the entire sub-tile is NA
-   #     AGB_total <- rep(0,length(model_list))
-   #     AGB_total_boreal <- rep(0,length(model_list))
-   #     mean_map <- pred_stack$slopemask
-   #     sd_map <- pred_stack$slopemask
-    #}    
-    AGB_total_out <- as.data.frame(cbind(AGB_total, AGB_total_boreal))
-    names(AGB_total_out) <- c('Tile_Total', 'Boreal_Total')
-    out_fn_stem = paste("output/boreal_agb", format(Sys.time(),"%Y%m%d%s"), str_pad(tile_num, 4, pad = "0"), sep="_")
-
-    out_fn_total <- paste0(out_fn_stem, '_total.csv')
-
-    write.csv(file=out_fn_total, AGB_total_out, row.names=FALSE)
-    if(n_models>1){
-        agb_maps <- list(c(mean_map, sd_map, map_pred), AGB_total_out)
-    } else{
-        agb_maps <- list(c(mean_map), AGB_total_out)
-    }
-
-  return(agb_maps)
-    }
+agb_mapping <- function(model_list=model_list, tile_num=tile_num, stack=stack, boreal_poly=boreal_poly) {
+  return(generic_mapping(
+    model_list=model_list, tile_num=tile_num, stack=stack, boreal_poly=boreal_poly,
+    summary_fun='sum', convert_fun=function(x){(x*0.09)/1000000000},
+    out_df_names=c('Tile_Total', 'Boreal_Total'), output_type='abg', output_csv_suffix='_total'
+    )
+  )
 }
 
-HtMapping<-function(model_list=model_list, tile_num=tile_num, stack=stack, boreal_poly=boreal_poly){
+ht_mapping <- function(model_list=model_list, tile_num=tile_num, stack=stack, boreal_poly=boreal_poly) {
+  return(generic_mapping(
+    model_list=model_list, tile_num=tile_num, stack=stack, boreal_poly=boreal_poly,
+    summary_fun='mean', convert_fun=NULL, out_df_names=c('Tile_mean', 'Boreal_mean'),
+    output_type='ht', output_csv_suffix='_mean'
+    )
+  )
+}
+
+generic_mapping <-function(model_list, tile_num, stack, boreal_poly, summary_fun, convert_fun,
+                           out_df_names, output_type, output_csv_suffix) {
   pred_stack <- na.omit(stack)
-  if(length(unique(values(pred_stack$NDVI))) <= 1)
-    stop('Warning: only one unique NDVI value in input stack')
+  pred_map = c()
+  tile_summary = c()
+  boreal_summary = c()
+  n_models <- length(model_list)
 
-  map_pred = c()
-  Ht_mean = c()
-  Ht_mean_boreal = c()
-  n_models = length(model_list)
-
-  for (model_i in model_list) {
-    map_pred_i <- predict(pred_stack, model_i, na.rm=TRUE)
+  for (model_i in model_list){
+    pred_map_i <- predict(pred_stack, model_i, na.rm=TRUE)
     # set slope and valid mask to zero
-    map_pred_i <- mask(map_pred_i, pred_stack$slopemask, maskvalues=0, updatevalue=0)
-    map_pred_i <- mask(map_pred_i, pred_stack$ValidMask, maskvalues=0, updatevalue=0)
+    pred_map_i <- mask(pred_map_i, pred_stack$slopemask, maskvalues=0, updatevalue=0)
+    pred_map_i <- mask(pred_map_i, pred_stack$ValidMask, maskvalues=0, updatevalue=0)
+    pred_map <- c(pred_map, pred_map_i)
 
-    Ht_mean_i <- global(map_pred_i, 'mean', na.rm=TRUE)$mean
-    map_pred <- c(map_pred, map_pred_i)
-    Ht_mean <- c(Ht_mean, Ht_mean_i)
+    pred_map_conv_i <- if (is.null(convert_fun)) pred_map_i else app(pred_map_i, convert_fun)
+    tile_summary_i <- global(pred_map_conv_i, summary_fun, na.rm=TRUE)[[summary_fun]]
+    tile_summary <- c(tile_summary, tile_summary_i)
 
     # repeat for just boreal
-    boreal_ht_i <- extract(map_pred_i, boreal_poly, fun=mean, na.rm=TRUE)
-    Ht_boreal_i <- boreal_ht_i$lyr1[1]
-    Ht_mean_boreal <- c(Ht_mean_boreal, Ht_boreal_i)
+    boreal_i <- extract(pred_map_conv_i, boreal_poly, fun=summary_fun, na.rm=TRUE)
+    boreal_summary_i <- if(summary_fun=='sum') sum(boreal_i$lyr.1, na.rm=TRUE) else boreal_i$lyr1[1]
+    boreal_summary <- c(boreal_summary, boreal_summary_i)
   }
-  map_pred <- rast(map_pred)
-
+  pred_map <- rast(pred_map)
   if (n_models > 1)
-    sd_map <- app(map_pred, sd)
-  # not actually the mean, to reduce edge noise, maybe replace with median or a trimmed mean
-  mean_map <- map_pred[[1]]
+    sd_map <- app(pred_map, sd)
 
-  Ht_mean_out <- as.data.frame(cbind(Ht_mean, Ht_mean_boreal))
-  names(Ht_mean_out) <-  c('Tile_Mean', 'Boreal_Mean')
-  saveDataFrame(Ht_mean_out, 'ht', tile_num, '_mean')
+  tile_and_boreal_summary_df <- as.data.frame(cbind(tile_summary, boreal_summary))
+  names(tile_and_boreal_summary_df) <- out_df_names
+  saveDataFrame(tile_and_boreal_summary_df, output_type, tile_num, output_csv_suffix)
 
   if(n_models>1)
-    ht_maps <- list(c(mean_map, sd_map, map_pred), Ht_mean_out)
+    maps <- list(c(pred_map[[1]], sd_map, pred_map), tile_and_boreal_summary_df)
   else
-    ht_maps <- list(c(mean_map), Ht_mean_out)
+    maps <- list(c(pred_map[[1]]), tile_and_boreal_summary_df)
 
-  return(ht_maps)
+  return(maps)
 }
+
 
 saveDataFrame <- function(df, product, tile_num, suffix){
   out_fn_stem = paste("output/boreal", product, format(Sys.time(),"%Y%m%d%s"), str_pad(tile_num, 4, pad = "0"), sep="_")
