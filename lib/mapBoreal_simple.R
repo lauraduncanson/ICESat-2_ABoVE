@@ -425,14 +425,6 @@ agbModeling<-function(rds_models, models_id, in_data, pred_vars, offset=100, DO_
                        max_n=max_n,
                        sample = TRUE) 
     
-    xtable<-GEDI2AT08AGB(rds_models=rds_models,
-                       models_id=models_id,
-                       in_data=in_data, 
-                       offset=offset,
-                       DO_MASK=DO_MASK, 
-                       one_model=FALSE,
-                       max_n=max_n,
-                       sample=TRUE) 
 
   model_list <- list()
     model_list <- list.append(model_list, xtable_predict)
@@ -447,7 +439,7 @@ agbModeling<-function(rds_models, models_id, in_data, pred_vars, offset=100, DO_
             x <- x[-check_nas]
             y <- y[-check_nas]
         }
-        se <- xtable$se
+
 
         fit.rf <- randomForest(y=y, x=x, ntree=NTREE, mtry=6)
         
@@ -462,7 +454,7 @@ agbModeling<-function(rds_models, models_id, in_data, pred_vars, offset=100, DO_
             x <- x[-check_nas]
             y <- y[-check_nas]
         }
-        se <- xtable$se
+
         # create one single rf using all the data; the first in model_list will be used for prediction
         print('fitting height model')
         
