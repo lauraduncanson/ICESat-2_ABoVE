@@ -43,37 +43,7 @@ applyModels <- function(models=models,
         if(rem>1){
             models <- models[-rem]
         }
-    
-        #create one single model for prediction
-        if(predict_var=='AGB'){
-            y <- xtable$AGB
-        }
-        if(predict_var=='Ht'){
-            y <- xtable$RH_98
-        }
-        x <- xtable[pred_vars]
-        print('fit general model')
-        rf_single <- randomForest(y=y, x=x, ntree=NTREE)
-        #rf_single <- ranger(y=y, x=x, num.trees=500, oob.error=TRUE)
-        pred_stack <- na.omit(stack)
-        
-        #subset just to layers of stack for prediction
-        #pred_layer_names <- names(rf_single$forest$independent.variable.names)
 
-        #pred_stack <- subset(pred_stack, pred_layer_names)
-    
-        print('apply first model to stack')
-        agb_preds <- predict(pred_stack, models[[1]], na.rm=TRUE)
-    
-        print('mask first predictions')
-
-        #set slope and valid mask to zero
-        agb_preds <- mask(agb_preds, pred_stack$slopemask, maskvalues=0, updatevalue=0)
-
-        agb_preds <- mask(agb_preds, pred_stack$ValidMask, maskvalues=0, updatevalue=0)   
-    
-        print(paste0('models successfully applied with ', length(pred_vars), ' predictor variables'))
-        
         #split stack into list of files
         if(ppside > 1){
             tile_list <- SplitRas(raster=stack,ppside=ppside,save=FALSE)
