@@ -963,8 +963,8 @@ mapBoreal<-function(rds_models,
         rm(rm_temp)
     }
                 
-    broad_data = broad_data[,!(names(broad_data) %in% "geometry")]
-    
+    broad_data <- broad_data[,!(names(broad_data) %in% "geometry")]
+    broad_data <- broad_data[, intersect(names(broad_data), names(tile_data))]
     print(ice2_30_sample_path)
     
     #remove first col of broad_data
@@ -997,7 +997,7 @@ mapBoreal<-function(rds_models,
         broad_data <- broad_data[broad_in_lat,]
         broad_sample_ids <- sample(broad_samp_ids, n_broad, replace=FALSE)
         broad_data <- broad_data[broad_sample_ids,]
-
+        
         all_train_data <- rbind(tile_data, broad_data)
     } else {
         all_train_data <- tile_data
