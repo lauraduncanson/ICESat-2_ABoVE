@@ -177,179 +177,91 @@ combine_temp_files <- function(target, tile_num){
   return(combined_tile)
 }
 
-GEDI2AT08AGB<-function(rds_models,models_id, in_data, offset=100, DO_MASK=FALSE, one_model=TRUE, max_n=5000.0, sample=TRUE){
-  # rds_models
-  names(rds_models)<-models_id
-    
-    xtable_i<-na.omit(as.data.frame(in_data))
+get_height_column_names <- function(in_data){
+  return(
+    names(in_data)[grep('^RH_[0-9]{2}$', names(in_data))]
+  )
+}
 
-    #### test adding this in here
-    # Get rid of extra data above max_n
-    #sample = TRUE if subsampling desired, otherwise all data will be used for fits
+rename_height_columns_to_match_pretrained_models <- function(in_data){
+  return(
+    in_data |>
+      rename_with(~gsub('\\brh([0-9]{2})\\b', 'RH_\\1', .x), matches='^rh[0-9]{2}$') |>
+      rename(RH_98=h_canopy)
+  )
+}
 
-    if(sample==TRUE){
-        
-        n_avail <- nrow(xtable_i)
-        
-        max_n <- as.numeric(max_n)
-        
-        if(n_avail > max_n){ 
-            
-            samp_ids <- seq(1,n_avail)
-            
-            tile_sample_ids <- sample(samp_ids, max_n, replace=FALSE)
-            
-            xtable_i <- xtable_i[tile_sample_ids,]
-        }    
-    }
-    
-    
-  #if(DO_MASK){
-  #    in_data = in_data %>% dplyr::filter(slopemask ==1 & ValidMask == 1)
-  #}
-  
-  #rename to match variables in models
-  names(xtable_i)[which(names(xtable_i) %in% "rh25")] <- 'RH_25'
-  names(xtable_i)[which(names(xtable_i) %in% "rh50")] <- 'RH_50'
-  names(xtable_i)[which(names(xtable_i) %in% "rh60")] <- 'RH_60'
-  names(xtable_i)[which(names(xtable_i) %in% "rh70")] <- 'RH_70'
-  names(xtable_i)[which(names(xtable_i) %in% "rh75")] <- 'RH_75'
-  names(xtable_i)[which(names(xtable_i) %in% "rh80")] <- 'RH_80'                      
-  names(xtable_i)[which(names(xtable_i) %in% "rh90")] <- 'RH_90'
-  names(xtable_i)[which(names(xtable_i) %in% "rh95")] <- 'RH_95'
-  names(xtable_i)[which(names(xtable_i) %in% "h_canopy")] <- 'RH_98'
+reformat_for_AGB_prediction <- function(in_data, offset){
+  RH_columns <- get_height_column_names(in_data)
 
-   #subset to height cols
-   ht_cols <- names(xtable_i) %in% c('RH_25', 'RH_50', 'RH_60', 'RH_70', 'RH_75', 'RH_80', 'RH_90', 'RH_95', 'RH_98')
+  in_data <- in_data |>
+    select(c(RH_columns, segment_landcover)) |>
+    mutate(across(RH_columns, ~. + offset)) |>
+    mutate(model_id = case_when(
+      segment_landcover %in% c(111, 113, 121, 123) ~ "m8",# "m3",
+      segment_landcover %in% c(112, 114, 122, 124) ~ "m8", # "m1",
+      TRUE ~ "m8"
+    )
+    ) |>
+    select(-segment_landcover)
 
-    #adjust for offset in model fits (100)
-    #GEDI L4A team added offset to all the height metrics so they would never be negative)
-    
-  xtable_sqrt<-xtable_i[,ht_cols]+offset
-    
-  # get unique ids
-  # apply models by id
-  xtable_sqrt$AGB<-NA
-  xtable_sqrt$SE<-NA
-    
-  #Assign model id based on landcover
+  return(in_data)
+}
 
-    # if using ground photon models: 1 = DBT trees (boreal-wide), 4=Evergreen needleleaf trees (boreal-wide), 12 = boreal-wide all PFT
-    # if using no ground photon models: 1 = DBT trees (boreal-wide), 3=Evergreen needleleaf trees (boreal-wide), 8 = boreal-wide all PFT
+randomize <- function(model_i){
+  # modify coeffients through sampling variance covariance matrix
+  model_varcov <- vcov(model_i)
+  coeffs <- model_i$coefficients
 
-    # for the seg_landcov: {0: "water", 1: "evergreen needleleaf forest", 2: "evergreen broadleaf forest", \ 3: "deciduous needleleaf forest", 4: "deciduous broadleaf forest", \ 5: "mixed forest", 6: "closed shrublands", 7: "open shrublands", \ 8: "woody savannas", 9: "savannas", 10: "grasslands", 11: "permanent wetlands", \ 12: "croplands", 13: "urban-built", 14: "croplands-natural mosaic", \ 15: "permanent snow-ice", 16: "barren"})
-    
-# for the seg_landcov update w v5 to Copernicus: {0: "NA", 111, 121: "evergreen needleleaf forest", 112, 122: "evergreen broadleaf forest", \ 113, 123: "deciduous needleleaf forest", 114, 124: "deciduous broadleaf forest", \ 115, 125: "mixed forest", 116, 126:"closed forest unknown", 20: "shrublands", 30: "herbaceous vegetation", \ 100: "moss and lichen", 60: "bare/sparse", 80, 200: "water", 40: "agriculture", 50: "urban-built", 70: "permanent snow-ice"})
-    
-    #xtable_sqrt$model_id <- NA
-    #xtable_sqrt$model_id[xtable_sqrt$seg_landcov==0] <- 8
-    #xtable_sqrt$model_id[xtable_sqrt$seg_landcov==1] <- 3
-    #xtable_sqrt$model_id[xtable_sqrt$seg_landcov==2] <- 1
-    #xtable_sqrt$model_id[xtable_sqrt$seg_landcov==3] <- 3
-    #xtable_sqrt$model_id[xtable_sqrt$seg_landcov==4] <- 1
-    #xtable_sqrt$model_id[xtable_sqrt$seg_landcov==5] <- 8
-    #xtable_sqrt$model_id[xtable_sqrt$seg_landcov==6] <- 8
-    #xtable_sqrt$model_id[xtable_sqrt$seg_landcov==7] <- 8
-    #xtable_sqrt$model_id[xtable_sqrt$seg_landcov==8] <- 8
-    #xtable_sqrt$model_id[xtable_sqrt$seg_landcov==9] <- 8
-    #xtable_sqrt$model_id[xtable_sqrt$seg_landcov==10] <-8
-    #xtable_sqrt$model_id[xtable_sqrt$seg_landcov==11] <- 8
-    #xtable_sqrt$model_id[xtable_sqrt$seg_landcov==12] <- 8
-    #xtable_sqrt$model_id[xtable_sqrt$seg_landcov==13] <- 8
-    #xtable_sqrt$model_id[xtable_sqrt$seg_landcov==14] <- 8
-    #xtable_sqrt$model_id[xtable_sqrt$seg_landcov==15] <- 8
-    #xtable_sqrt$model_id[xtable_sqrt$seg_landcov==16] <- 8
-    
-    #for no ground photon models
-    xtable_sqrt$model_id <- 'NA'
-    xtable_sqrt$model_id[xtable_i$seg_landcov==111] <- 'm3'
-    xtable_sqrt$model_id[xtable_i$seg_landcov==121] <- 'm3'
-    xtable_sqrt$model_id[xtable_i$seg_landcov==112] <- 'm1'
-    xtable_sqrt$model_id[xtable_i$seg_landcov==122] <- 'm1'
-    xtable_sqrt$model_id[xtable_i$seg_landcov==113] <- 'm3'
-    xtable_sqrt$model_id[xtable_i$seg_landcov==123] <- 'm3'
-    xtable_sqrt$model_id[xtable_i$seg_landcov==114] <- 'm1'
-    xtable_sqrt$model_id[xtable_i$seg_landcov==124] <- 'm1'
-    xtable_sqrt$model_id[xtable_sqrt$model_id=='NA'] <- 'm8'
-    
-    #for ground models, DBT coarse = m1, ENT coarse = m4, global = m12
-    #xtable_sqrt$model_id <- 'NA'
-    #xtable_sqrt$model_id[xtable_i$seg_landcov==111] <- 'm4'
-    #xtable_sqrt$model_id[xtable_i$seg_landcov==121] <- 'm4'
-    #xtable_sqrt$model_id[xtable_i$seg_landcov==112] <- 'm1'
-    #xtable_sqrt$model_id[xtable_i$seg_landcov==122] <- 'm1'
-    #xtable_sqrt$model_id[xtable_i$seg_landcov==113] <- 'm4'
-    #xtable_sqrt$model_id[xtable_i$seg_landcov==123] <- 'm4'
-    #xtable_sqrt$model_id[xtable_i$seg_landcov==114] <- 'm1'
-    #xtable_sqrt$model_id[xtable_i$seg_landcov==124] <- 'm1'
-    #xtable_sqrt$model_id[xtable_sqrt$model_id=='NA'] <- 'm12'
+  mod.coeffs <- mvrnorm(n = 50, mu=coeffs, Sigma = model_varcov)
+  model_i$coefficients <- mod.coeffs[1,]
 
-    #xtable_sqrt$model_id<-names(rds_models)[1]
-    ids<-unique(xtable_sqrt$model_id)
-    n_models <- length(ids)
-    
-    #one model for actual application - no resampling
-    
-    #iterate through re-sampling models
+  return(model_i)
+}
+
+GEDI2AT08AGB<-function(rds_models, models_id, in_data, offset=100, DO_MASK=FALSE, one_model=TRUE, max_n=5000.0, sample=TRUE){
+  # TODO the three steps below should actually be done only once outside in the caller
+  in_data <- na.omit(as.data.frame(in_data))
+  if (sample && nrow(in_data) > max_n)
+    in_data <- reduce_sample_size(in_data, max_n)
+  in_data <- rename_height_columns_to_match_pretrained_models(in_data)
+
+  df <- reformat_for_AGB_prediction(in_data, offset)
+
+  df$AGB<-NA
+  df$SE<-NA
+
+  ids<-unique(df$model_id)
+  n_models <- length(ids)
+
   for (i in ids){
-    
-    # subset data for model id
     model_i<-readRDS(rds_models[names(rds_models)==i])
-      
-    # get variance covariance matrix
-    model_varcov <- vcov(model_i)
-    
-    # get coefficients
-    coeffs <- model_i$coefficients
-    
-    # modify coeffients through sampling variance covariance matrix
-    #if one_model = TRUE do not resample
-    
-      if(one_model==FALSE){
-          mod.coeffs <- mvrnorm(n = 50, mu=coeffs, Sigma = model_varcov)
-          model_i$coefficients <- mod.coeffs[1,]
-      }
 
-    # SE
-    xtable_sqrt$SE[xtable_sqrt$model_id==i] <- summary(model_i)$sigma^2
-    
-    # AGB prediction
-    xtable_sqrt$AGB[xtable_sqrt$model_id==i]<-predict(model_i, newdata=xtable_sqrt[xtable_sqrt$model_id==i,])
-        
-    #define C
+    # Modify coeffients through sampling variance covariance matrix
+    if(!one_model)
+      model_i <- randomize(model_i)
+
+    # Predict AGB and SE
+    df$AGB[df$model_id==i] <- predict(model_i, newdata=df[df$model_id==i,])
+    df$SE[df$model_id==i] <- summary(model_i)$sigma^2
+
+    df$AGB[df$AGB < 0] <- 0.0
+
+    # Calculate Correction Factor C
     C <- mean(model_i$fitted.values^2)/mean(model_i$model$`sqrt(AGBD)`^2)
-    
-    #set negatives to zero
-    negs <- which(xtable_sqrt$AGB<0)
-    if(length(negs)>0){
-        xtable_sqrt$AGB[negs] == 0.0
-    }
-      
-    #we multiply by C in case there is a systematic over or under estimation in the model (bias correction)
-    xtable_sqrt$AGB[xtable_sqrt$model_id==i]<-C*(xtable_sqrt$AGB[xtable_sqrt$model_id==i]^2)
-      
-    #set predictions where slopemask & validmask are 0 to 0
-    xtable_sqrt$AGB[which(xtable_sqrt$slopemask==0)] <- 0.0
-      
-    xtable_sqrt$AGB[which(xtable_sqrt$ValidMask==0)] <- 0.0
-      
-    #set predictions where landcover is water, urban, snow, barren to 0
-    #bad_lc <- c(0, 13, 15, 16)
-    #update with copernicus
-      
-    bad_lc <- c(0, 60, 80, 200, 50, 70)
-      
-    xtable_sqrt$AGB[which(xtable_sqrt$seg_landcov %in% bad_lc)] <- 0.0
 
+    # Bias correction in case there is a systematic over or under estimation in the model
+    df$AGB[df$model_id==i] <- C*(df$AGB[df$model_id==i]^2)
   }
-    
-  xtable2<-cbind(xtable_i, xtable_sqrt$AGB, xtable_sqrt$SE)
-    
-  ncol <- ncol(xtable2)
-    
-  colnames(xtable2)[(ncol-1):ncol]<-c('AGB', 'SE')
-    
-  return(xtable2)
+  in_data |> bind_cols(AGB=df$AGB, SE=df$SE)
+
+  # Apply slopemask, validmask and landcover masks
+  bad_lc <- c(0, 60, 80, 200, 50, 70)
+  in_data$AGB[in_data$slopemask == 0 |
+                in_data$ValidMask == 0 |
+                in_data$segment_landcover %in% bad_lc] <- 0.0
+
+  return(in_data)
 }
 
 # stats
