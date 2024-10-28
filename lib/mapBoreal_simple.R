@@ -592,7 +592,7 @@ remove_stale_columns <- function(df, column_names) {
   return(df)
 }
 
-sample_broad_data_within_latitute <- function(broad_data, latitue, threshold){
+sample_broad_data_within_latitude <- function(broad_data, lat, threshold){
 
   broad_within_lat <- which(broad_data$lat > (lat-threshold) & broad_data$lat < (lat+threshold))
   broad_data <- broad_data[broad_within_lat,]
@@ -946,35 +946,37 @@ library(terra)
 rds_models <- list.files(path='~/dps_output/', pattern='*.rds', full.names = TRUE)
 models_id<-names(rds_models)<-paste0("m",1:length(rds_models))
 
-#use terra
-topo <- rast(topo_stack_file)
-l8 <- rast(l8_stack_file)
-lc <- rast(LC_mask_file)
-
 # make sure data are linked properly
 #check extents
-nrow_topo = nrow(topo)
-nrow_lc = nrow(lc)
-nrow_l8 = nrow(l8)
-nrow_diff <- abs(nrow_topo-nrow_l8)
-nrow_diff2 <- abs(nrow_topo-nrow_lc)
+resample_or_reproject_inputs <- function(){
+  topo <- rast(topo_stack_file)
+  l8 <- rast(l8_stack_file)
+  lc <- rast(LC_mask_file)
+  #sar <- rast(SAR_stack_file)
 
-ncol_topo <- ncol(topo)
-ncol_l8 <- ncol(l8)
-ncol_lc <- ncol(lc)
+  if (nrow(topo) != nrow(l8) || ncol(topo) != ncol(l8)){
+    topo <- resample(topo, l8, method = 'near')
+    ext(topo) <- ext(l8)
+  }
+  if (nrow(lc) != nrow(l8) || ncol(lc) != ncol(l8)){
+    lc <- resample(lc, l8, method = 'near')
+    ext(lc) <- ext(l8)
+  }
+  ## if (nrow(sar) != nrow(l8) || ncol(sar) != ncol(l8)){
+  ##   sar <- resample(sar, l8, method = 'near')
+  ##   ext(sar) <- ext(l8)
+  ## }
 
-ncol_diff <- abs(ncol_topo-ncol_l8)
-ncol_diff2 <- abs(ncol_topo-ncol_lc)
+  stack <- c(l8, topo, lc)
+  boreal_poly <- project(vect(boreal_vect), crs(l8))
 
-if(nrow_diff>0 || ncol_diff>0 || nrow_diff2>0 || ncol_diff2>0){
-   #resample
-    topo <- resample(topo, l8, method='near')
-    lc <- resample(lc, l8, method='near')
+  return(list("stack" = stack, "boreal_poly" = boreal_poly))
 }
-ext(topo) <- ext(l8)
-ext(lc) <- ext(l8)
 
-stack<-c(l8,topo, lc)
+stack_poly <- resample_or_reproject_inputs()
+stack <- stack_poly[['stack']]
+boreal_poly <- stack_poly[['boreal_poly']]
+
 
 if(DO_MASK_WITH_STACK_VARS){
     print("Masking stack...")
@@ -993,15 +995,6 @@ if(DO_MASK_WITH_STACK_VARS){
     }
     rm(m)
 }
-
-#read boreal polygon for masking later
-boreal_poly <- vect(boreal_vect)
-
-#project vector to match tile
-#crs(boreal_poly) <- crs(l8)
-
-#project to ensure match
-boreal_poly <- project(boreal_poly, crs(l8))
 
 
 print("modelling begins")
