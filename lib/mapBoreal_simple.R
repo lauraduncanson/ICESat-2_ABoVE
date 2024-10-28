@@ -36,10 +36,7 @@ applyModels <- function(models=models,
                            pred_vars=pred_vars,
                            predict_var=predict_var,
                            tile_num){
-        xtable <- models[[1]]
-        models <- models[-1]
         rem <- length(models)
-    
         if(rem>1){
             models <- models[-rem]
         }
@@ -294,98 +291,38 @@ stratRandomSample<-function(agb=y,breaks, p){
   return(ids_selected=sel_all$ids)
 }
 
-# modeling - fit a number of models and return as a list of models
 agbModeling<-function(rds_models, models_id, in_data, pred_vars, offset=100, DO_MASK, rep=100, predict_var){
-    # apply GEDI models for prediction
-    
-    xtable_predict<-GEDI2AT08AGB(rds_models=rds_models,
-                       models_id=models_id,
-                       in_data=in_data, 
-                       offset=offset,
-                       DO_MASK=DO_MASK, 
-                       one_model=TRUE,
-                       max_n=max_n,
-                       sample = TRUE) 
-    
-
   model_list <- list()
-    model_list <- list.append(model_list, xtable_predict)
-    if(predict_var=='AGB'){
+  rep <- rep + 1
+  for (j in 1:rep){
+    # reduce max_n for faster modeling
+    current_max_n <- if (j == 1) max_n else 1000
+    one_model <- j == 1
 
-        x <- xtable_predict[pred_vars]
-        y <- xtable_predict$AGB
-        
-        #remove na data
-        check_nas <- which(is.na(y)==TRUE)
-        if(length(check_nas>1)){
-            x <- x[-check_nas]
-            y <- y[-check_nas]
-        }
-
-
-        fit.rf <- randomForest(y=y, x=x, ntree=NTREE, mtry=6)
-        
-    }
-    
-    if(predict_var=='Ht'){
-        x <- xtable_predict[pred_vars]
-        y <- xtable_predict$RH_98
-        #remove na data
-        check_nas <- which(is.na(y)==TRUE)
-        if(length(check_nas>1)){
-            x <- x[-check_nas]
-            y <- y[-check_nas]
-        }
-
-        # create one single rf using all the data; the first in model_list will be used for prediction
-        print('fitting height model')
-        
-        #tune mtry
-        #mtry_use <- tuneRF(x, y, ntreeTry=50, stepFactor=2, improve=0.05, trace=FALSE, plot=FALSE, doBest=FALSE)
-        #fit the RF model that will actually be applied for mapping
-        fit.rf <- randomForest(y=y, x=x, ntree=NTREE, mtry=6)
-        #print(max(fit.rf$rsq, na.rm=TRUE))
-    }
-    
-    model_list <- list.append(model_list, fit.rf)
-    
-  stats_df<-NULL
-  n<-nrow(x)
-  ids<-1:n
-  i.s=0
-
-
-    #loop through many reps with quick model fits for uncertainty
-if(rep>1){    
-    for (j in 1:rep){
-    #reduce max_n for faster modeling
-    max_n = 1000
-    xtable<-GEDI2AT08AGB(rds_models=rds_models,
+    xtable <- GEDI2AT08AGB(rds_models=rds_models,
                        models_id=models_id,
-                       in_data=in_data, 
+                       in_data=in_data,
                        offset=offset,
-                       DO_MASK=DO_MASK, 
-                       one_model=FALSE,
-                       max_n=max_n,
-                       sample=TRUE) 
+                       DO_MASK=DO_MASK, # not needed
+                       one_model=one_model,
+                       max_n=current_max_n,
+                       sample=TRUE)
+    if (j == 1)
+      AGB_training_table <- xtable
 
-    # rf modeling
-    if(predict_var=='Ht'){
-        y_fit <- xtable$RH_98
-    }
-    if(predict_var=='AGB'){
-        y_fit <- xtable$AGB
-
-    }
+    y_fit <- if (predict_var == 'Ht') xtable$RH_98 else xtable$AGB
     x_fit <- xtable[pred_vars]
-        
-    fit.rf <- randomForest(y=y_fit, x=x_fit, ntree=NTREE)
-    
-    model_list <- list.append(model_list, fit.rf)  
-      }
-    }
-  
-  return(model_list)
+
+    # TODO need to pass these models as a param not hard coded RF
+    if (j == 1)
+      rf_model <- randomForest(y=y_fit, x=x_fit, ntree=NTREE, mtry=6)
+    else
+      rf_model <- randomForest(y=y_fit, x=x_fit, ntree=NTREE)
+
+    model_list <- list.append(model_list, rf_model)
+  }
+
+  return(list(AGB_training_table=AGB_training_table, model_list=model_list))
 }
 
 #split raster into subtiles, run mapping, recombine
@@ -774,9 +711,9 @@ mapBoreal<-function(rds_models,
     
     print('model fitting complete!')
 
-    final_map <- applyModels(models, stack, pred_vars, predict_var, tile_num)
+    final_map <- applyModels(models[['model_list']], stack, pred_vars, predict_var, tile_num)
 
-    xtable <- models[[1]]
+    xtable <- models[['AGB_training_table']]
     combined_totals <- combine_temp_files(predict_var, tile_num)
 
     #subset out the iteration bands
@@ -812,7 +749,7 @@ mapBoreal<-function(rds_models,
                             rep=10,
                             predict_var=predict_var)
                 
-            new_final_map <- applyModels(new_models, stack, pred_vars, predict_var, tile_num)
+            new_final_map <- applyModels(new_models[['model_list']], stack, pred_vars, predict_var, tile_num)
             combined_totals_new <- combine_temp_files(predict_var, tile_num)
 
             #combine original map with new iterations map
