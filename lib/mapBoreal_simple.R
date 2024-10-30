@@ -222,7 +222,7 @@ GEDI2AT08AGB<-function(rds_models, models_id, in_data, offset=100, DO_MASK=FALSE
     # Bias correction in case there is a systematic over or under estimation in the model
     df$AGB[df$model_id==i] <- C*(df$AGB[df$model_id==i]^2)
   }
-  in_data |> bind_cols(AGB=df$AGB, SE=df$SE)
+  in_data <- in_data |> bind_cols(AGB=df$AGB, SE=df$SE)
 
   # Apply slopemask, validmask and landcover masks
   bad_lc <- c(0, 60, 80, 200, 50, 70)
