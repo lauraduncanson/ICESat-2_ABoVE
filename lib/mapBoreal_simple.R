@@ -108,38 +108,10 @@ applyModels <- function(models=models,
             }
            }
         if (ppside == 1){
-            if(predict_var=='AGB'){
-               temp_map<-agb_mapping(
-                     model_list=models,
-                     tile_num=tile_num,
-                     stack=stack,
-                     boreal_poly=boreal_poly)
-            }
-            if(predict_var=='Ht'){
-                temp_map<-ht_mapping(
-                     model_list=models,
-                     tile_num=tile_num,
-                     stack=stack,
-                     boreal_poly=boreal_poly)
-            }
-            
-            out_map <- temp_map[[1]]
-
-            if (predict_var == 'AGB'){
-              tile_total <- temp_map[[2]]
-            }
-            else {
-              tile_mean <- temp_map[[2]]$Tile_Mean
-            }
-            rm(temp_map)
+          mapping_fun <- if (predict_var == 'AGB') agb_mapping else ht_mapping
+          out_map <- mapping_fun(model_list=models, tile_num=tile_num, stack=stack, boreal_poly=boreal_poly)
         }
-        if(predict_var=='Ht'){
-            out_data <- list(out_map, tile_mean)
-        }
-        if(predict_var=='AGB'){
-            out_data <- list(out_map, tile_total)
-        }
-        return(out_data)
+          return(list(out_map[[1]], NULL))
     }
 
 combine_temp_files <- function(target, tile_num){
@@ -386,20 +358,22 @@ generic_mapping <-function(model_list, tile_num, stack, boreal_poly, summary_fun
   n_models <- length(model_list)
 
   for (model_i in model_list){
+    print('generic mapping iter')
     pred_map_i <- predict(pred_stack, model_i, na.rm=TRUE)
     # set slope and valid mask to zero
     pred_map_i <- mask(pred_map_i, pred_stack$slopemask, maskvalues=0, updatevalue=0)
     pred_map_i <- mask(pred_map_i, pred_stack$ValidMask, maskvalues=0, updatevalue=0)
     pred_map <- c(pred_map, pred_map_i)
-
+    print('map pred done')
     pred_map_conv_i <- if (is.null(convert_fun)) pred_map_i else app(pred_map_i, convert_fun)
     tile_summary_i <- global(pred_map_conv_i, summary_fun, na.rm=TRUE)[[summary_fun]]
     tile_summary <- c(tile_summary, tile_summary_i)
-
+    print('tile summary done')
     # repeat for just boreal
     boreal_i <- extract(pred_map_conv_i, boreal_poly, fun=summary_fun, na.rm=TRUE)
     boreal_summary_i <- if(summary_fun=='sum') sum(boreal_i$lyr.1, na.rm=TRUE) else boreal_i$lyr1[1]
     boreal_summary <- c(boreal_summary, boreal_summary_i)
+    print('boreal summary done')
   }
   pred_map <- rast(pred_map)
   if (n_models > 1)
@@ -416,7 +390,6 @@ generic_mapping <-function(model_list, tile_num, stack, boreal_poly, summary_fun
 
   return(maps)
 }
-
 
 saveDataFrame <- function(df, product, tile_num, suffix){
   out_fn_stem = paste("output/boreal", product, format(Sys.time(),"%Y%m%d%s"), str_pad(tile_num, 4, pad = "0"), sep="_")
