@@ -18,7 +18,6 @@
 
 #### iii) Inputs
 ####  - rds_models: list of ICESat-2 simulation-derived AGB model paths
-####  - models_id: models id
 ####  - stack: a combined raster stack of Landsat and Copernicus DEM data
 ####  - ice2_30_atl08: list containing the path to the data tables
 ####  - offset: offset applied in the model
@@ -192,7 +191,7 @@ randomize <- function(model_i){
   return(model_i)
 }
 
-GEDI2AT08AGB<-function(rds_models, models_id, df, one_model=TRUE, max_n=5000.0, sample=TRUE){
+GEDI2AT08AGB<-function(rds_models, df, one_model=TRUE, max_n=5000.0, sample=TRUE){
   if (sample && nrow(df) > max_n)
     df <- reduce_sample_size(df, max_n)
 
@@ -261,7 +260,7 @@ stratRandomSample<-function(agb=y,breaks, p){
   return(ids_selected=sel_all$ids)
 }
 
-agbModeling<-function(rds_models, models_id, in_data, pred_vars, rep=100, predict_var){
+agbModeling<-function(rds_models, in_data, pred_vars, rep=100, predict_var){
   model_list <- list()
   rep <- rep + 1
   for (j in 1:rep){
@@ -270,7 +269,6 @@ agbModeling<-function(rds_models, models_id, in_data, pred_vars, rep=100, predic
     one_model <- j == 1
 
     xtable <- GEDI2AT08AGB(rds_models=rds_models,
-                       models_id=models_id,
                        df=in_data,
                        one_model=one_model,
                        max_n=current_max_n,
@@ -645,7 +643,6 @@ prepare_training_data <- function(ice2_30_atl08_path, ice2_30_sample_path, minDO
 }
 
 mapBoreal<-function(rds_models,
-                    models_id,
                     ice2_30_atl08_path, 
                     ice2_30_sample_path,
                     offset=100,
@@ -675,7 +672,6 @@ mapBoreal<-function(rds_models,
     all_train_data <- prepare_training_data(ice2_30_atl08_path, ice2_30_sample_path, minDOY, maxDOY, max_sol_el, min_icesat2_samples, local_train_perc, offset)
 
     models<-agbModeling(rds_models=rds_models,
-                            models_id=models_id,
                             in_data=all_train_data,
                             pred_vars=pred_vars,
                             rep=rep,
@@ -713,7 +709,6 @@ mapBoreal<-function(rds_models,
             while(var_diff > var_thresh){
             print('Adding more interations...')
             new_models <- agbModeling(rds_models=rds_models,
-                            models_id=models_id,
                             in_data=all_train_data,
                             pred_vars=pred_vars,
                             rep=10,
@@ -849,7 +844,7 @@ library(terra)
 # run code
 # adding model ids
 rds_models <- list.files(path='~/dps_output/', pattern='*.rds', full.names = TRUE)
-models_id<-names(rds_models)<-paste0("m",1:length(rds_models))
+names(rds_models)<-paste0("m",1:length(rds_models))
 
 # make sure data are linked properly
 #check extents
@@ -909,7 +904,6 @@ print(data_sample_file)
 set.seed(123)
 NTREE = 30
 maps<-mapBoreal(rds_models=rds_models,
-                models_id=models_id,
                 ice2_30_atl08_path=data_table_file,
                 ice2_30_sample=data_sample_file,
                 offset=100.0,
