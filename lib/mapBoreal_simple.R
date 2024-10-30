@@ -574,11 +574,11 @@ write_ATL08_table <- function(target, df, out_file_path){
     write.csv(df[, out_columns], file=out_file_path, row.names=FALSE)
 }
 
-write_single_model_summary <- function(df, target, pred_vars, out_fns, nrow_tile){
+write_single_model_summary <- function(df, target, pred_vars, out_fns){
     target <- if(target == 'AGB') df$AGB else df$RH_98
 
     rf_single <- randomForest(y=target, x=df[pred_vars], ntree=NTREE, importance=TRUE, mtry=6)
-    local_model <- lm(rf_single$predicted[1:nrow_tile] ~ target[1:nrow_tile], na.rm=TRUE)
+    local_model <- lm(rf_single$predicted ~ target, na.rm=TRUE)
     saveRDS(rf_single, file=out_fns['model'])
 
     rsq <- max(rf_single$rsq, na.rm=T)
@@ -670,9 +670,7 @@ mapBoreal<-function(rds_models,
     str(all_train_data)
     all_train_data <- remove_height_outliers(all_train_data)
 
-    tile_data_output <- tile_data # probably not needed
     cat('table for model training generated with ', nrow(all_train_data), ' observations\n')
-
     models<-agbModeling(rds_models=rds_models,
                             models_id=models_id,
                             in_data=all_train_data,
@@ -752,7 +750,7 @@ mapBoreal<-function(rds_models,
 
     write_output_raster_map(out_map, out_map_all, out_fns['cog'])
     write_ATL08_table(predict_var, xtable, out_fns['train'])
-    write_single_model_summary(xtable, predict_var, pred_vars, out_fns, nrow(tile_data_output))
+    write_single_model_summary(xtable, predict_var, pred_vars, out_fns)
 
     print("Returning names of COG and CSV...")
     return(list(out_fns['cog'], out_fns['csv']))
