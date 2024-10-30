@@ -611,6 +611,38 @@ write_output_raster_map <- function(out_map, out_map_all, output_fn){
   cat("Write COG tif: ", output_fn, '\n')
 }
 
+prepare_training_data <- function(ice2_30_atl08_path, ice2_30_sample_path, minDOY, maxDOY, max_sol_el, min_icesat2_samples, local_train_perc){
+  tile_data <- read.csv(ice2_30_atl08_path)
+
+  if(expand_training)
+    tile_data <- expand_training_around_growing_season(tile_data, minDOY, maxDOY, max_sol_el, min_icesat2_samples)
+
+  cat('n_avail training:', nrow(tile_data), '\n')
+  tile_data <- remove_stale_columns(tile_data, c("binsize", "num_bins"))
+  broad_data <- read.csv(ice2_30_sample_path)
+  broad_data <- remove_stale_columns(broad_data, c("X__index_level_0__", "geometry"))
+
+  # take proportion of broad data we want based on local_train_perc
+  sample_local <- nrow(tile_data) * (local_train_perc/100)
+  cat('sample_local:', sample_local, '\n')
+
+  if (sample_local < min_icesat2_samples)
+    tile_data <- reduce_sample_size(tile_data, sample_local)
+
+  # sample from broad data to complete sample size
+  # this will work if either there aren't enough local samples for n_min OR if there is forced broad sampling
+  n_broad <- min_icesat2_samples - nrow(tile_data)
+  if(n_broad > 1)
+    all_train_data <- expand_training_with_broad_data(broad_data, tile_data)
+  else
+    all_train_data <- tile_data
+
+  all_train_data <- remove_height_outliers(all_train_data)
+
+  str(all_train_data)
+  cat('table for model training generated with ', nrow(all_train_data), ' observations\n')
+  return(all_train_data)
+}
 
 mapBoreal<-function(rds_models,
                     models_id,
@@ -635,42 +667,13 @@ mapBoreal<-function(rds_models,
                     max_n=3000,
                     pred_vars=c('elev', 'slope')){
 
-    # Get tile num
     tile_num = tail(unlist(strsplit(path_ext_remove(ice2_30_atl08_path), "_")), n=1)
     print("Modelling and mapping boreal AGB")
     cat("tile: ", tile_num, '\n')
     cat("ATL08 input: ", ice2_30_atl08_path, '\n')
 
-    tile_data <- read.csv(ice2_30_atl08_path)
+    all_train_data <- prepare_training_data(ice2_30_atl08_path, ice2_30_sample_path, minDOY, maxDOY, max_sol_el, min_icesat2_samples, local_train_perc)
 
-    if(expand_training)
-      tile_data <- expand_training_around_growing_season(tile_data, minDOY, maxDOY, max_sol_el, min_icesat2_samples)
-
-    cat('n_avail training:', nrow(tile_data), '\n')
-    tile_data <- remove_stale_columns(tile_data, c("binsize", "num_bins"))
-    broad_data <- read.csv(ice2_30_sample_path)
-    broad_data <- remove_stale_columns(broad_data, c("X__index_level_0__", "geometry"))
-    print(ice2_30_sample_path)
-
-    # take proportion of broad data we want based on local_train_perc
-    sample_local <- nrow(tile_data) * (local_train_perc/100)
-    cat('sample_local:', sample_local, '\n')
-
-    if (sample_local < min_icesat2_samples)
-      tile_data <- reduce_sample_size(tile_data, sample_local)
-
-    # sample from broad data to complete sample size
-    # this will work if either there aren't enough local samples for n_min OR if there is forced broad sampling
-    n_broad <- min_icesat2_samples - nrow(tile_data)
-    if(n_broad > 1)
-        all_train_data <- expand_training_with_broad_data(broad_data, tile_data)
-    else
-        all_train_data <- tile_data
-
-    str(all_train_data)
-    all_train_data <- remove_height_outliers(all_train_data)
-
-    cat('table for model training generated with ', nrow(all_train_data), ' observations\n')
     models<-agbModeling(rds_models=rds_models,
                             models_id=models_id,
                             in_data=all_train_data,
@@ -830,8 +833,6 @@ max_sol_el <- as.double(max_sol_el)
 local_train_perc <- as.double(local_train_perc)
 
 MASK_LYR_NAMES = c('slopemask', 'ValidMask')
-
-#MASK_LANDCOVER_NAMES = c(0,13,15,16)
 MASK_LANDCOVER_NAMES = c(50,70,80,100)
 
 print(paste0("Do mask? ", DO_MASK_WITH_STACK_VARS))
