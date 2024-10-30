@@ -160,19 +160,23 @@ rename_height_columns_to_match_pretrained_models <- function(in_data){
   )
 }
 
-reformat_for_AGB_prediction <- function(in_data, offset){
-  RH_columns <- get_height_column_names(in_data)
+offset_RH_columns <- function(all_train_data, offset){
+  RH_columns <- get_height_column_names(all_train_data)
 
+  return(
+    all_train_data |>
+      mutate(across(RH_columns, ~. + offset))
+  )
+}
+
+set_model_id_for_AGB_prediction <- function(in_data, offset){
   in_data <- in_data |>
-    select(c(RH_columns, segment_landcover)) |>
-    mutate(across(RH_columns, ~. + offset)) |>
     mutate(model_id = case_when(
       segment_landcover %in% c(111, 113, 121, 123) ~ "m8",# "m3",
       segment_landcover %in% c(112, 114, 122, 124) ~ "m8", # "m1",
       TRUE ~ "m8"
     )
-    ) |>
-    select(-segment_landcover)
+    )
 
   return(in_data)
 }
@@ -188,17 +192,12 @@ randomize <- function(model_i){
   return(model_i)
 }
 
-GEDI2AT08AGB<-function(rds_models, models_id, in_data, offset=100, DO_MASK=FALSE, one_model=TRUE, max_n=5000.0, sample=TRUE){
-  # TODO the three steps below should actually be done only once outside in the caller
-  in_data <- na.omit(as.data.frame(in_data))
-  if (sample && nrow(in_data) > max_n)
-    in_data <- reduce_sample_size(in_data, max_n)
-  in_data <- rename_height_columns_to_match_pretrained_models(in_data)
+GEDI2AT08AGB<-function(rds_models, models_id, df, one_model=TRUE, max_n=5000.0, sample=TRUE){
+  if (sample && nrow(df) > max_n)
+    df <- reduce_sample_size(df, max_n)
 
-  df <- reformat_for_AGB_prediction(in_data, offset)
-
-  df$AGB<-NA
-  df$SE<-NA
+  df$AGB <- NA
+  df$SE <- NA
 
   ids<-unique(df$model_id)
   n_models <- length(ids)
@@ -222,15 +221,14 @@ GEDI2AT08AGB<-function(rds_models, models_id, in_data, offset=100, DO_MASK=FALSE
     # Bias correction in case there is a systematic over or under estimation in the model
     df$AGB[df$model_id==i] <- C*(df$AGB[df$model_id==i]^2)
   }
-  in_data <- in_data |> bind_cols(AGB=df$AGB, SE=df$SE)
 
   # Apply slopemask, validmask and landcover masks
   bad_lc <- c(0, 60, 80, 200, 50, 70)
-  in_data$AGB[in_data$slopemask == 0 |
-                in_data$ValidMask == 0 |
-                in_data$segment_landcover %in% bad_lc] <- 0.0
+  df$AGB[df$slopemask == 0 |
+                df$ValidMask == 0 |
+                df$segment_landcover %in% bad_lc] <- 0.0
 
-  return(in_data)
+  return(df)
 }
 
 # stats
@@ -263,7 +261,7 @@ stratRandomSample<-function(agb=y,breaks, p){
   return(ids_selected=sel_all$ids)
 }
 
-agbModeling<-function(rds_models, models_id, in_data, pred_vars, offset=100, DO_MASK, rep=100, predict_var){
+agbModeling<-function(rds_models, models_id, in_data, pred_vars, rep=100, predict_var){
   model_list <- list()
   rep <- rep + 1
   for (j in 1:rep){
@@ -273,16 +271,14 @@ agbModeling<-function(rds_models, models_id, in_data, pred_vars, offset=100, DO_
 
     xtable <- GEDI2AT08AGB(rds_models=rds_models,
                        models_id=models_id,
-                       in_data=in_data,
-                       offset=offset,
-                       DO_MASK=DO_MASK, # not needed
+                       df=in_data,
                        one_model=one_model,
                        max_n=current_max_n,
                        sample=TRUE)
     if (j == 1)
       AGB_training_table <- xtable
 
-    y_fit <- if (predict_var == 'Ht') xtable$RH_98 else xtable$AGB
+    y_fit <- if (predict_var == 'Ht') xtable$h_canopy else xtable$AGB
     x_fit <- xtable[pred_vars]
 
     # TODO need to pass these models as a param not hard coded RF
@@ -570,12 +566,12 @@ set_output_file_names <- function(out_fn_stem){
 
 
 write_ATL08_table <- function(target, df, out_file_path){
-    out_columns <- if(target=='AGB') c('lon', 'lat', 'AGB', 'SE') else c('lon', 'lat', 'RH_98')
+    out_columns <- if(target=='AGB') c('lon', 'lat', 'AGB', 'SE') else c('lon', 'lat', 'h_canopy')
     write.csv(df[, out_columns], file=out_file_path, row.names=FALSE)
 }
 
 write_single_model_summary <- function(df, target, pred_vars, out_fns){
-    target <- if(target == 'AGB') df$AGB else df$RH_98
+    target <- if(target == 'AGB') df$AGB else df$h_canopy
 
     rf_single <- randomForest(y=target, x=df[pred_vars], ntree=NTREE, importance=TRUE, mtry=6)
     local_model <- lm(rf_single$predicted ~ target, na.rm=TRUE)
@@ -611,7 +607,7 @@ write_output_raster_map <- function(out_map, out_map_all, output_fn){
   cat("Write COG tif: ", output_fn, '\n')
 }
 
-prepare_training_data <- function(ice2_30_atl08_path, ice2_30_sample_path, minDOY, maxDOY, max_sol_el, min_icesat2_samples, local_train_perc){
+prepare_training_data <- function(ice2_30_atl08_path, ice2_30_sample_path, minDOY, maxDOY, max_sol_el, min_icesat2_samples, local_train_perc, offset){
   tile_data <- read.csv(ice2_30_atl08_path)
 
   if(expand_training)
@@ -638,7 +634,11 @@ prepare_training_data <- function(ice2_30_atl08_path, ice2_30_sample_path, minDO
     all_train_data <- tile_data
 
   all_train_data <- remove_height_outliers(all_train_data)
-
+  all_train_data <- na.omit(as.data.frame(all_train_data))
+  all_train_data <- rename_height_columns_to_match_pretrained_models(all_train_data)
+  all_train_data$h_canopy <- all_train_data$RH_98
+  all_train_data <- offset_RH_columns(all_train_data, offset)
+  all_train_data <- set_model_id_for_AGB_prediction(all_train_data)
   str(all_train_data)
   cat('table for model training generated with ', nrow(all_train_data), ' observations\n')
   return(all_train_data)
@@ -672,14 +672,12 @@ mapBoreal<-function(rds_models,
     cat("tile: ", tile_num, '\n')
     cat("ATL08 input: ", ice2_30_atl08_path, '\n')
 
-    all_train_data <- prepare_training_data(ice2_30_atl08_path, ice2_30_sample_path, minDOY, maxDOY, max_sol_el, min_icesat2_samples, local_train_perc)
+    all_train_data <- prepare_training_data(ice2_30_atl08_path, ice2_30_sample_path, minDOY, maxDOY, max_sol_el, min_icesat2_samples, local_train_perc, offset)
 
     models<-agbModeling(rds_models=rds_models,
                             models_id=models_id,
                             in_data=all_train_data,
                             pred_vars=pred_vars,
-                            offset=offset,
-                            DO_MASK=DO_MASK,
                             rep=rep,
                             predict_var=predict_var)
     
@@ -718,8 +716,6 @@ mapBoreal<-function(rds_models,
                             models_id=models_id,
                             in_data=all_train_data,
                             pred_vars=pred_vars,
-                            offset=offset,
-                            DO_MASK=DO_MASK,
                             rep=10,
                             predict_var=predict_var)
                 
