@@ -202,7 +202,7 @@ GEDI2AT08AGB<-function(rds_models, df, one_model=TRUE, max_n=5000.0, sample=TRUE
   n_models <- length(ids)
 
   for (i in ids){
-    model_i<-readRDS(rds_models[names(rds_models)==i])
+    model_i <- rds_models[[i]]
 
     # Modify coeffients through sampling variance covariance matrix
     if(!one_model)
@@ -642,8 +642,14 @@ prepare_training_data <- function(ice2_30_atl08_path, ice2_30_sample_path, minDO
   return(all_train_data)
 }
 
-mapBoreal<-function(rds_models,
-                    ice2_30_atl08_path, 
+get_rds_models <- function(){
+  rds_model_fns <- list.files(path='~/dps_output/', pattern='*.rds', full.names = TRUE)
+  rds_models <- lapply(rds_model_fns, readRDS)
+  names(rds_models) <- paste0("m",1:length(rds_models))
+  return(rds_models)
+}
+
+mapBoreal<-function(ice2_30_atl08_path,
                     ice2_30_sample_path,
                     offset=100,
                     s_train=70, 
@@ -670,7 +676,7 @@ mapBoreal<-function(rds_models,
     cat("ATL08 input: ", ice2_30_atl08_path, '\n')
 
     all_train_data <- prepare_training_data(ice2_30_atl08_path, ice2_30_sample_path, minDOY, maxDOY, max_sol_el, min_icesat2_samples, local_train_perc, offset)
-
+    rds_models <- get_rds_models()
     models<-agbModeling(rds_models=rds_models,
                             in_data=all_train_data,
                             pred_vars=pred_vars,
@@ -842,12 +848,7 @@ library(stringr)
 library(rockchalk)
 library(terra)
 # run code
-# adding model ids
-rds_models <- list.files(path='~/dps_output/', pattern='*.rds', full.names = TRUE)
-names(rds_models)<-paste0("m",1:length(rds_models))
 
-# make sure data are linked properly
-#check extents
 resample_or_reproject_inputs <- function(){
   topo <- rast(topo_stack_file)
   l8 <- rast(l8_stack_file)
@@ -903,8 +904,7 @@ print('file name:')
 print(data_sample_file)
 set.seed(123)
 NTREE = 30
-maps<-mapBoreal(rds_models=rds_models,
-                ice2_30_atl08_path=data_table_file,
+maps<-mapBoreal(ice2_30_atl08_path=data_table_file,
                 ice2_30_sample=data_sample_file,
                 offset=100.0,
                 s_train=70,
