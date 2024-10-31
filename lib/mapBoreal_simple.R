@@ -782,6 +782,7 @@ mapBoreal<-function(ice2_30_atl08_path,
 # print(max_n)
 pred_vars = '~/Downloads/dps_output/pred_vars.txt'
 pred_vars <- as.character(read.table(pred_vars, header=FALSE, sep=' ')[1,])
+setwd('~/')
 # print('pred_vars:')
 # print(pred_vars)
 
@@ -791,19 +792,34 @@ pred_vars <- as.character(read.table(pred_vars, header=FALSE, sep=' ')[1,])
 #l8_stack_file <- '/projects/shared-buckets/nathanmthomas/alg_34_testing/HLS_1216_06-15_09-01_2019_2021.tif'
 #LC_mask_file <- '/projects/shared-buckets/nathanmthomas/alg_34_testing/esa_worldcover_v100_2020_1216_cog.tif'
 
-data_table_file <- '~/Downloads/dps_output/atl08_006_030m_2020_2020_06_09_filt_covars_merge_neighbors_034673.csv'
-topo_stack_file <- '~/Downloads/dps_output/CopernicusGLO30_34673_cog_topo_stack.tif'
-l8_stack_file <- '~/Downloads/dps_output/HLS_34673_07-01_08-31_2023_2023.tif'
-LC_mask_file <- '~/Downloads/dps_output/esa_worldcover_v100_2020_34673_cog.tif'
-data_sample_file <- '~/Downloads/dps_output/boreal_train_data_2020_n3.csv'
+## data_table_file <- '~/Downloads/dps_output/atl08_006_030m_2020_2020_06_09_filt_covars_merge_neighbors_034673.csv'
+## topo_stack_file <- '~/Downloads/dps_output/CopernicusGLO30_34673_cog_topo_stack.tif'
+## l8_stack_file <- '~/Downloads/dps_output/HLS_34673_07-01_08-31_2023_2023.tif'
+## LC_mask_file <- '~/Downloads/dps_output/esa_worldcover_v100_2020_34673_cog.tif'
+## data_sample_file <- '~/Downloads/dps_output/boreal_train_data_2020_n3.csv'
+## boreal_vect <- '~/Downloads/dps_output/wwf_circumboreal_Dissolve.geojson'
+
+## data_table_file <- '~/Downloads/inputs/atl08_006_030m_2020_2020_06_09_filt_covars_merge_neighbors_363400.csv'
+## topo_stack_file <- '~/Downloads/inputs/CopernicusGLO30_363400_cog_topo_stack.tif'
+## LC_mask_file <- '~/Downloads/inputs/esa_worldcover_v100_2020_363400_cog.tif'
+## l8_stack_file <- '~/Downloads/inputs/HLS_363400_07-01_08-31_2020_2020.tif'
+## SAR_stack_file <- '~/Downloads/inputs/SAR_S1_2020_363400_cog.tif'
+
+data_sample_file <- '~/Downloads/dps_outputs/boreal_train_data_2020_n3.csv'
 boreal_vect <- '~/Downloads/dps_output/wwf_circumboreal_Dissolve.geojson'
 
-# data_table_file <- '~/Downloads/dps_outputs/atl08_006_030m_2020_2020_06_09_filt_covars_merge_neighbors_004104.csv'
-# topo_stack_file <- '~/Downloads/dps_outputs/CopernicusGLO30_4104_cog_topo_stack.tif'
-# LC_mask_file <- '~/Downloads/dps_outputs/esa_worldcover_v100_2020_4104_cog.tif'
-# l8_stack_file <- '~/Downloads/dps_outputs/HLS_4104_07-01_08-31_2020_2020.tif'
-# data_sample_file <- '~/Downloads/dps_outputs/boreal_train_data_2020_n3.csv'
-# boreal_vect <- '~/Downloads/dps_outputs/wwf_circumboreal_Dissolve.geojson'
+data_table_file <- '~/Downloads/inputs/atl08_006_030m_2020_2020_06_09_filt_covars_merge_neighbors_001613.csv'
+topo_stack_file <- '~/Downloads/inputs/CopernicusGLO30_1613_cog_topo_stack.tif'
+LC_mask_file <- '~/Downloads/inputs/esa_worldcover_v100_2020_1613_cog.tif'
+l8_stack_file <- '~/Downloads/inputs/HLS_1613_07-01_08-31_2020_2020.tif'
+SAR_stack_file <- '~/Downloads/inputs/SAR_S1_2020_1613_cog.tif'
+
+## data_table_file <- '~/Downloads/dps_outputs/atl08_006_030m_2020_2020_06_09_filt_covars_merge_neighbors_004104.csv'
+## topo_stack_file <- '~/Downloads/dps_outputs/CopernicusGLO30_4104_cog_topo_stack.tif'
+## LC_mask_file <- '~/Downloads/dps_outputs/esa_worldcover_v100_2020_4104_cog.tif'
+## l8_stack_file <- '~/Downloads/dps_outputs/HLS_4104_07-01_08-31_2020_2020.tif'
+## data_sample_file <- '~/Downloads/dps_outputs/boreal_train_data_2020_n3.csv'
+## boreal_vect <- '~/Downloads/dps_outputs/wwf_circumboreal_Dissolve.geojson'
 
 DO_MASK_WITH_STACK_VARS <- 'TRUE'
 #data_sample_file <- '/projects/my-private-bucket/boreal_train_data_v11.csv'
