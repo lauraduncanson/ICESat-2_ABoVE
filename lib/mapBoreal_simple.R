@@ -817,8 +817,7 @@ SAR_stack_file <- '~/Downloads/inputs/SAR_S1_2020_1613_cog.tif'
 ## data_sample_file <- '~/Downloads/dps_outputs/boreal_train_data_2020_n3.csv'
 ## boreal_vect <- '~/Downloads/dps_outputs/wwf_circumboreal_Dissolve.geojson'
 
-DO_MASK_WITH_STACK_VARS <- 'TRUE'
-#data_sample_file <- '/projects/my-private-bucket/boreal_train_data_v11.csv'
+mask_stack <- 'TRUE'
 iters <- 30
 ppside <- 1
 minDOY <- 130
@@ -829,7 +828,6 @@ local_train_perc <- 100
 min_icesat2_samples <- 5000
 max_n <- 10000
 
-#boreal_vect <- '/projects/shared-buckets/nathanmthomas/boreal_tiles_v003.gpkg'
 predict_var <- 'AGB'
 #predict_var <- 'Ht'
 
@@ -838,26 +836,13 @@ minDOY <- as.double(minDOY)
 maxDOY <- as.double(maxDOY)
 max_sol_el <- as.double(max_sol_el)
 local_train_perc <- as.double(local_train_perc)
+print(paste0("Do mask? ", mask_stack))
 
-MASK_LYR_NAMES = c('slopemask', 'ValidMask')
-MASK_LANDCOVER_NAMES = c(50,70,80,100)
-
-print(paste0("Do mask? ", DO_MASK_WITH_STACK_VARS))
-
-# loading packages and functions
-#----------------------------------------------#
 library(randomForest)
-#library(rgdal)
-library(data.table)
-library(ggplot2)
 library(dplyr)
-library(rlist)
-library(fs)
-library(stringr)
-#library(gdalUtils)
-library(rockchalk)
+# library(rockchalk)
 library(terra)
-# run code
+
 
 resample_or_reproject_inputs <- function(){
   topo <- rast(topo_stack_file)
@@ -884,28 +869,30 @@ resample_or_reproject_inputs <- function(){
   return(list("stack" = stack, "boreal_poly" = boreal_poly))
 }
 
-stack_poly <- resample_or_reproject_inputs()
-stack <- stack_poly[['stack']]
-boreal_poly <- stack_poly[['boreal_poly']]
+mask_input_stack <- function(stack){
+  MASK_LYR_NAMES = c('slopemask', 'ValidMask')
+  MASK_LANDCOVER_NAMES = c(50, 70, 80, 100)
 
+  print("Masking stack...")
+  # Bricking the stack will make the masking faster (i think)
+  # brick = rast(stack)
 
-if(DO_MASK_WITH_STACK_VARS){
-    print("Masking stack...")
-    # Bricking the stack will make the masking faster (i think)
-    #brick = rast(stack)
-    for(LYR_NAME in MASK_LYR_NAMES){
-        m <- terra::subset(stack, grep(LYR_NAME, names(stack), value = T))
+  for(LYR_NAME in MASK_LYR_NAMES){
+    m <- terra::subset(stack, grep(LYR_NAME, names(stack), value = T))
+    stack <- mask(stack, m == 0, maskvalue=TRUE)
+  }
 
-        stack <- mask(stack, m == 0, maskvalue=TRUE)
+  for(LC_NAME in MASK_LANDCOVER_NAMES){
+    n <- terra::subset(stack, grep('esa_worldcover_v100_2020', names(stack), value=LC_NAME))
+    stack <- mask(stack, n == LC_NAME, maskvalue=TRUE)
+  }
 
-    }
-    for(LC_NAME in MASK_LANDCOVER_NAMES){
-        n <- terra::subset(stack, grep('esa_worldcover_v100_2020', names(stack), value=LC_NAME))
-        stack <- mask(stack, n == LC_NAME, maskvalue=TRUE)
-
-    }
-    rm(m)
+  return(stack)
 }
+
+stack_poly <- resample_or_reproject_inputs()
+stack <- if (mask_stack) mask_input_stack(stack_poly[['stack']]) else stack_poly[['stack']]
+boreal_poly <- stack_poly[['boreal_poly']]
 
 
 print("modelling begins")
