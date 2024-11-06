@@ -169,29 +169,27 @@ offset_RH_columns <- function(all_train_data, offset){
 }
 
 set_model_id_for_AGB_prediction <- function(in_data, offset){
-  in_data <- in_data |>
-    mutate(model_id = case_when(
-      segment_landcover %in% c(111, 113, 121, 123) ~ "m8",# "m3",
-      segment_landcover %in% c(112, 114, 122, 124) ~ "m8", # "m1",
-      TRUE ~ "m8"
-    )
-    )
-
-  return(in_data)
+  # TODO: uncomment correct model ids once tested against old results
+  return(
+    in_data |>
+      mutate(model_id = case_when(
+        segment_landcover %in% c(111, 113, 121, 123) ~ "m8",# "m3",
+        segment_landcover %in% c(112, 114, 122, 124) ~ "m8", # "m1",
+        TRUE ~ "m8"
+      )
+      )
+  )
 }
 
-randomize <- function(model_i){
+randomize_AGB_model <- function(model){
   # modify coeffients through sampling variance covariance matrix
-  model_varcov <- vcov(model_i)
-  coeffs <- model_i$coefficients
+  model_coeffs <- mvrnorm(n=50, mu=model$coefficients, Sigma=vcov(model))
+  model$coefficients <- model_coeffs[1,]
 
-  mod.coeffs <- mvrnorm(n = 50, mu=coeffs, Sigma = model_varcov)
-  model_i$coefficients <- mod.coeffs[1,]
-
-  return(model_i)
+  return(model)
 }
 
-GEDI2AT08AGB<-function(rds_models, df, one_model=TRUE, max_n=5000.0, sample=TRUE){
+GEDI2AT08AGB<-function(rds_models, df, randomize=FALSE, max_n=10000, sample=TRUE){
   if (sample && nrow(df) > max_n)
     df <- reduce_sample_size(df, max_n)
 
@@ -205,8 +203,8 @@ GEDI2AT08AGB<-function(rds_models, df, one_model=TRUE, max_n=5000.0, sample=TRUE
     model_i <- rds_models[[i]]
 
     # Modify coeffients through sampling variance covariance matrix
-    if(!one_model)
-      model_i <- randomize(model_i)
+    if(randomize)
+      model_i <- randomize_AGB_model(model_i)
 
     # Predict AGB and SE
     df$AGB[df$model_id==i] <- predict(model_i, newdata=df[df$model_id==i,])
@@ -226,7 +224,6 @@ GEDI2AT08AGB<-function(rds_models, df, one_model=TRUE, max_n=5000.0, sample=TRUE
   df$AGB[df$slopemask == 0 |
                 df$ValidMask == 0 |
                 df$segment_landcover %in% bad_lc] <- 0.0
-
   return(df)
 }
 
@@ -266,11 +263,11 @@ agbModeling<-function(rds_models, in_data, pred_vars, rep=100, predict_var){
   for (j in 1:rep){
     # reduce max_n for faster modeling
     current_max_n <- if (j == 1) max_n else 1000
-    one_model <- j == 1
+    randomize <- j != 1
 
     xtable <- GEDI2AT08AGB(rds_models=rds_models,
                        df=in_data,
-                       one_model=one_model,
+                       randomize=randomize,
                        max_n=current_max_n,
                        sample=TRUE)
     if (j == 1)
@@ -399,9 +396,9 @@ partial_sd <- function(arr){
   return(partial_sd_arr)
 }
 
-sd_change_relative_to_baseline <- function(arr, n){
+sd_change_relative_to_baseline <- function(arr, last_n){
   partial_sd_arr <- partial_sd(arr)
-  paritial_std_arr_last_n_out <- head(partial_sd_arr, max(1, length(arr) - n))
+  paritial_std_arr_last_n_out <- head(partial_sd_arr, max(1, length(arr) - last_n))
 
   baseline_sd <- mean(paritial_std_arr_last_n_out, na.rm=T)
   full_sd <-  mean(partial_sd_arr, na.rm=T)
@@ -552,16 +549,21 @@ combine_csv_outpus <- function(target, tile_num){
   return(out_fn_stem)
 }
 
-set_output_file_names <- function(out_fn_stem){
-  fn_types <- c('tmp.tif', '.tif', '.csv', '_train_data.csv', '_stats.Rds', '_model.Rds')
-  output_file_names <- paste0(out_fn_stem, fn_types)
+set_output_file_names <- function(predict_var, tile_num){
+  key <- if (predict_var == 'AGB') 'agb' else 'ht'
+  out_fn_stem = paste(
+    paste0('output/boreal_', key), format(Sys.time(),"%Y%m%d%s"), str_pad(tile_num, 7, pad = "0"),
+    sep="_"
+  )
 
-  names <- c('tif', 'cog', 'csv', 'train', 'stats', 'model')
+  fn_suffix <- c('.tif', '_summary.csv', '_train_data.csv', '_stats.Rds', '_model.Rds')
+  names <- c('map', 'summary', 'train', 'stats', 'model')
+
+  output_file_names <- paste0(out_fn_stem, fn_suffix)
   names(output_file_names) <- names
 
   return(output_file_names)
 }
-
 
 write_ATL08_table <- function(target, df, out_file_path){
     out_columns <- if(target=='AGB') c('lon', 'lat', 'AGB', 'SE') else c('lon', 'lat', 'h_canopy')
@@ -605,7 +607,7 @@ write_output_raster_map <- function(out_map, out_map_all, output_fn){
   cat("Write COG tif: ", output_fn, '\n')
 }
 
-prepare_training_data <- function(ice2_30_atl08_path, ice2_30_sample_path, minDOY, maxDOY, max_sol_el, min_icesat2_samples, local_train_perc, offset){
+prepare_training_data <- function(ice2_30_atl08_path, ice2_30_sample_path, expand_training, minDOY, maxDOY, max_sol_el, min_icesat2_samples, local_train_perc, offset){
   tile_data <- read.csv(ice2_30_atl08_path)
 
   if(expand_training)
@@ -652,9 +654,7 @@ get_rds_models <- function(){
 mapBoreal<-function(ice2_30_atl08_path,
                     ice2_30_sample_path,
                     offset=100,
-                    s_train=70, 
                     rep=10,
-                    ppside=2,
                     stack=stack,
                     minDOY=121,
                     maxDOY=273,
@@ -662,7 +662,6 @@ mapBoreal<-function(ice2_30_atl08_path,
                     expand_training=TRUE,
                     local_train_perc=100,
                     min_icesat2_samples=3000,
-                    DO_MASK=FALSE,
                     boreal_poly=boreal_poly,
                     predict_var,
                     max_n=3000,
@@ -744,14 +743,11 @@ mapBoreal<-function(ice2_30_atl08_path,
     print('AGB successfully predicted!')
     print('mosaics completed!')
 
-    out_fns <- set_output_file_names(out_fn_stem)
+    out_fns <- set_output_file_names(predict_var, tile_num)
 
-    write_output_raster_map(out_map, out_map_all, out_fns['cog'])
+    write_output_raster_map(out_map, out_map_all, out_fns['map'])
     write_ATL08_table(predict_var, xtable, out_fns['train'])
     write_single_model_summary(xtable, predict_var, pred_vars, out_fns)
-
-    print("Returning names of COG and CSV...")
-    return(list(out_fns['cog'], out_fns['csv']))
 }
 
 # ####################### Run code ##############################
@@ -914,16 +910,12 @@ if(DO_MASK_WITH_STACK_VARS){
 
 print("modelling begins")
 
-print('file name:')
-print(data_sample_file)
 set.seed(123)
 NTREE = 30
 maps<-mapBoreal(ice2_30_atl08_path=data_table_file,
                 ice2_30_sample=data_sample_file,
                 offset=100.0,
-                s_train=70,
                 rep=iters,
-                ppside=ppside,
                 stack=stack,
                 minDOY=minDOY,
                 maxDOY=maxDOY,
@@ -931,7 +923,6 @@ maps<-mapBoreal(ice2_30_atl08_path=data_table_file,
                 expand_training=expand_training,
                 local_train_perc=local_train_perc,
                 min_icesat2_samples=min_icesat2_samples,
-                DO_MASK=DO_MASK_WITH_STACK_VARS,
                 boreal_poly=boreal_poly,
                 predict_var=predict_var,
                 max_n=max_n,
