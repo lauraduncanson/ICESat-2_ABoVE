@@ -570,42 +570,53 @@ write_ATL08_table <- function(target, df, out_file_path){
     write.csv(df[, out_columns], file=out_file_path, row.names=FALSE)
 }
 
-write_single_model_summary <- function(df, target, pred_vars, out_fns){
-    target <- if(target == 'AGB') df$AGB else df$h_canopy
+write_single_model_summary <- function(model, df, target, out_fns){
+  target <- if(target == 'AGB') df$AGB else df$RH_98
+  local_model <- lm(model$predicted ~ target, na.rm=TRUE)
+  saveRDS(model, file=out_fns['model'])
 
-    rf_single <- randomForest(y=target, x=df[pred_vars], ntree=NTREE, importance=TRUE, mtry=6)
-    local_model <- lm(rf_single$predicted ~ target, na.rm=TRUE)
-    saveRDS(rf_single, file=out_fns['model'])
+  rsq <- max(model$rsq, na.rm=T)
+  cat('rsq_model: ', rsq, '\n')
 
-    rsq <- max(rf_single$rsq, na.rm=T)
-    cat('rsq: ', rsq, '\n')
+  rsq_local <- summary(local_model)$r.squared
+  cat('rsq_local: ', rsq_local, '\n')
 
-    rsq_local <- summary(local_model)$r.squared
-    cat('rmax_iters <- sq_local: ', rsq_local, '\n')
+  na_data <- which(is.na(local_model$predicted==TRUE))
 
-    na_data <- which(is.na(local_model$predicted==TRUE))
+  if(length(na_data) == 0)
+    rmse_local <- sqrt(mean(local_model$residuals^2))
 
-    if(length(na_data) == 0)
-      rmse_local <- sqrt(mean(local_model$residuals^2))
+  cat('rmse_local: ', rmse_local, '\n')
 
-    cat('rmse_local: ', rmse_local, '\n')
-
-    imp_vars <- rf_single$importance
-    out_accuracy <- list(rsq_local, rmse_local, imp_vars)
-    saveRDS(out_accuracy, file=out_fns['stats'])
+  imp_vars <- model$importance
+  out_accuracy <- list(rsq_local, rmse_local, imp_vars)
+  saveRDS(out_accuracy, file=out_fns['stats'])
 }
 
-write_output_raster_map <- function(out_map, out_map_all, output_fn){
-  # change -9999 to NA
-  out_map <- subst(out_map, -9999, NA)
-  out_sd <- app(out_map_all, sd)
-  out_sd <- subst(out_sd, -9999, NA)
-  out_map <- c(out_map, out_sd)
-  NAflag(out_map)
+write_output_raster_map <- function(maps, output_fn){
+  maps <- subst(maps, -9999, NA)
+  if (nlyr(maps) > 1){
+    out_sd <- app(maps, sd)
+    out_sd <- subst(out_sd, -9999, NA)
+    maps <- c(subset(maps, 1), out_sd)
+  }
+  NAflag(maps)
   options <- c("COMPRESS=LZW", overwrite=TRUE, gdal=c("COMPRESS=LZW", "OVERVIEW_RESAMPLING=AVERAGE"))
-  writeRaster(out_map, filename=output_fn, filetype="COG", gdal=options)
-  cat("Write COG tif: ", output_fn, '\n')
+  writeRaster(maps, filename=output_fn, filetype="COG", gdal=options)
 }
+
+write_output_summaries <-function(tile_summaries, boreal_summaries, target, output_fn){
+  if (target == 'AGB')
+    column_names <- c('tile_total', 'boreal_total')
+  else
+    column_names <- c('tile_mean', 'boreal_mean')
+
+  df <- data.frame(tile_summaries, boreal_summaries)
+  names(df) <- column_names
+
+  write.csv(df, output_fn, row.names=FALSE)
+}
+
 
 prepare_training_data <- function(ice2_30_atl08_path, ice2_30_sample_path, expand_training, minDOY, maxDOY, max_sol_el, min_icesat2_samples, local_train_perc, offset){
   tile_data <- read.csv(ice2_30_atl08_path)
@@ -651,6 +662,82 @@ get_rds_models <- function(){
   return(rds_models)
 }
 
+predict_stack <- function(model, stack){
+  stack <- na.omit(stack)
+  map <- predict(stack, model, na.rm=TRUE)
+  # set slope and valid mask to zero
+  # TODO maybe mask can skip over these pixels by default?
+  map <- mask(map, stack$slopemask, maskvalues=0, updatevalue=0)
+  map <- mask(map, stack$ValidMask, maskvalues=0, updatevalue=0)
+
+  return(map)
+}
+
+tile_and_boreal_summary <- function(map, predict_var, boreal_poly, summary_and_convert_functions){
+  convert_fun <- summary_and_convert_functions[['convert_fun']]
+  summary_fun <- summary_and_convert_functions[['summary_fun']]
+
+  map_conv <- if (is.null(convert_fun)) map else app(map, convert_fun)
+
+  tile_summary <- global(map_conv, summary_fun, na.rm=TRUE)[[summary_fun]]
+
+  boreal <- extract(map_conv, boreal_poly, fun=summary_fun, na.rm=TRUE)
+  boreal_summary <- if(summary_fun=='sum') sum(boreal$lyr.1, na.rm=TRUE) else boreal$lyr1[1]
+
+  return(list(tile_summary=tile_summary, boreal_summary=boreal_summary))
+}
+
+fit_model <- function(model, model_config, train_df, pred_vars, predict_var){
+  y_fit <- if (predict_var == 'Ht') train_df$h_canopy else train_df$AGB
+  x_fit <- train_df[pred_vars]
+
+  model_fit <- do.call(model, modifyList(model_config, list(y=y_fit, x=x_fit)))
+  return(model_fit)
+}
+
+run_modeling_pipeline <-function(rds_models, all_train_data, boreal_poly,
+                                 model, model_config, randomize,
+                                 summary_and_convert_functions,
+                                 max_n, sample, pred_vars, predict_var, stack){
+  t1 <- Sys.time()
+  print('creating AGB traing data frame.')
+  train_df <- GEDI2AT08AGB(rds_models, all_train_data, randomize, max_n, sample)
+  print('fitting model')
+  model <- fit_model(model, model_config, train_df, pred_vars, predict_var)
+  print('predicting biomass map')
+  map <- predict_stack(model, stack)
+  print('calculating tile and boreal summaries')
+  summary <- tile_and_boreal_summary(map, predict_var, boreal_poly, summary_and_convert_functions)
+  t2 <- Sys.time()
+  cat('pipeline runtime:', t2 - t1, ' (s)\n')
+  return(list(
+    train_df=train_df, model=model, map=map,
+    tile_summary=summary[['tile_summary']], boreal_summary=summary[['boreal_summary']]
+  ))
+}
+
+get_summary_and_convert_functions <- function(predict_var){
+  if (predict_var == 'AGB'){
+    summary_fun <- 'sum'
+    convert_fun <- function(x){(x*0.09)/1000000000}
+  }
+  else{
+    summary_fun <- 'mean'
+    convert_fun <- NULL
+  }
+  return(list(summary_fun=summary_fun, convert_fun=convert_fun))
+}
+
+adjust_sd_thresh <- function(n_models, default_sd_thresh=0.05){
+  if(n_models > 75)
+    return(0.06)
+  else if (n_models > 100)
+    return(0.08)
+  else if (n_models > 200)
+    return(0.1)
+  return(default_sd_thresh)
+}
+
 mapBoreal<-function(ice2_30_atl08_path,
                     ice2_30_sample_path,
                     offset=100,
@@ -660,94 +747,83 @@ mapBoreal<-function(ice2_30_atl08_path,
                     maxDOY=273,
                     max_sol_el=0,
                     expand_training=TRUE,
+                    calculate_uncertainty=TRUE,
                     local_train_perc=100,
-                    min_icesat2_samples=3000,
+                    min_icesat2_samples=5000,
                     boreal_poly=boreal_poly,
                     predict_var,
-                    max_n=3000,
+                    max_n=10000,
                     pred_vars=c('elev', 'slope')){
 
-    tile_num = tail(unlist(strsplit(path_ext_remove(ice2_30_atl08_path), "_")), n=1)
-    print("Modelling and mapping boreal AGB")
-    cat("tile: ", tile_num, '\n')
-    cat("ATL08 input: ", ice2_30_atl08_path, '\n')
+  tile_num = tail(unlist(strsplit(path_ext_remove(ice2_30_atl08_path), "_")), n=1)
+  cat("Modelling and mapping boreal AGB tile: ", tile_num, "\n")
 
-    all_train_data <- prepare_training_data(ice2_30_atl08_path, ice2_30_sample_path, minDOY, maxDOY, max_sol_el, min_icesat2_samples, local_train_perc, offset)
-    rds_models <- get_rds_models()
-    models<-agbModeling(rds_models=rds_models,
-                            in_data=all_train_data,
-                            pred_vars=pred_vars,
-                            rep=rep,
-                            predict_var=predict_var)
-    
-    print('model fitting complete!')
+  all_train_data <- prepare_training_data(
+    ice2_30_atl08_path, ice2_30_sample_path, minDOY, maxDOY, max_sol_el,
+    expand_training, min_icesat2_samples, local_train_perc, offset
+  )
 
-    final_map <- applyModels(models[['model_list']], stack, pred_vars, predict_var, tile_num)
+  fixed_modeling_pipeline_params <- list(
+    rds_models=get_rds_models(), all_train_data=all_train_data, boreal_poly=boreal_poly,
+    pred_vars=pred_vars, predict_var=predict_var, stack=stack,
+    summary_and_convert_functions=get_summary_and_convert_functions(predict_var),
+    model=randomForest, sample=TRUE
+  )
 
-    xtable <- models[['AGB_training_table']]
-    combined_totals <- combine_temp_files(predict_var, tile_num)
+  results <- do.call(run_modeling_pipeline, modifyList(
+    fixed_modeling_pipeline_params,
+    list(max_n=max_n, randomize=FALSE, model_config=list(ntree=NTREE, mtry=6))
+  ))
 
-    #subset out the iteration bands
-    out_map_all <- subset(final_map[[1]], 3:nlyr(final_map[[1]]))
-    
-    #just pull the mean for out_map, sd will be added later
-    out_map <- subset(final_map[[1]], 1)
-    
-    rm(final_map)
+  output_fns <- set_output_file_names(predict_var, tile_num)
 
-    #set the variance threshold - 0.05 = 5%
-    var_thresh <- 0.05
-    
-    if(rep>1){
-        var_diff <- sd_change_relative_to_baseline(combined_totals, 9)
-        cat('var_diff:', var_diff, '\n')
+  write_ATL08_table(predict_var, results[['train_df']], output_fns[['train']])
+  write_single_model_summary(results[['model']], results[['train_df']],  predict_var, output_fns)
 
-        #if larger difference, need more models and more iterations
-        #save(combined_totals, file='/projects/lduncanson/testing/test_totals.Rdata')
-        #set some maximum number of iterations
-        max_iters <- 100
-        # this if statement seems to have no effect. Initially length(combined_totals) = 2
-        # which is < 100 (= max_iters), was it meant to be part of the while loop condition?
-        if(length(combined_totals)<max_iters){
-            while(var_diff > var_thresh){
-            print('Adding more interations...')
-            new_models <- agbModeling(rds_models=rds_models,
-                            in_data=all_train_data,
-                            pred_vars=pred_vars,
-                            rep=10,
-                            predict_var=predict_var)
-                
-            new_final_map <- applyModels(new_models[['model_list']], stack, pred_vars, predict_var, tile_num)
-            combined_totals_new <- combine_temp_files(predict_var, tile_num)
+  maps <- c(results[['map']])
+  tile_summaries <- c(results[['tile_summary']])
+  boreal_summaries <- c(results[['boreal_summary']])
 
-            #combine original map with new iterations map
-            out_map_all <- c(out_map_all, subset(new_final_map[[1]], 3:nlyr(new_final_map[[1]])))
-            rm(new_final_map)
-            combined_totals <- c(combined_totals, combined_totals_new)
-            var_diff <- sd_change_relative_to_baseline(combined_totals, 9)
+  print('First Prediction Results:')
+  cat('tile_summary:', results[['tile_summary']])
+  cat(' boreal_summary:', results[['tile_summary']], '\n')
 
-            if(length(combined_totals)>75){
-                var_thresh <- 0.06
-                }
-            if(length(combined_totals)>100){
-                var_thresh <- 0.08
-                }
-            if(length(combined_totals)>200){
-                var_thresh <- 0.1
-                }
-            }
-        }
+  if (calculate_uncertainty) {
+    # loop variables
+    sd_thresh <- 0.05
+    last_n <- 9
+    # can be initialized to anything bigger than sd_thresh
+    sd_diff <- sd_thresh + 1
+    this_rep <- 1
+    # Here sample size is reduced from 10K to 1K, and by setting randmize=TRUE
+    # the linear AGB models are randomized, also, the default random forest mtry is used
+    params <- modifyList(
+      fixed_modeling_pipeline_params,
+      list(max_n=1000, randomize=TRUE, model_config=list(ntree=NTREE))
+    )
+
+    while(sd_diff > sd_thresh && this_rep < rep){
+      cat('Uncertainty loop, iteration:', this_rep, '\n')
+      results <- do.call(run_modeling_pipeline, params)
+      cat('tile_summary:', results[['tile_summary']])
+      cat(' boreal_summary:', results[['tile_summary']], '\n')
+      maps <- c(maps, results[['map']])
+      tile_summaries <- c(tile_summaries, results[['tile_summary']])
+      boreal_summaries <- c(boreal_summaries, results[['boreal_summary']])
+      if (this_rep > last_n){
+        sd_diff <- sd_change_relative_to_baseline(tile_summaries, last_n=last_n)
+        cat('sd_diff:', sd_diff, '\n')
+      }
+      sd_thresh <- adjust_sd_thresh(this_rep)
+      this_rep <- this_rep + 1
     }
 
-    out_fn_stem <- combine_csv_outpus(predict_var, tile_num)
-    print('AGB successfully predicted!')
-    print('mosaics completed!')
+    # report_convergence(sd_diff, sd_thresh, this_rep, max_iters)
+  }
+  print('AGB successfully predicted!')
+  write_output_summaries(tile_summaries, boreal_summaries, predict_var,  output_fns[['summary']])
+  write_output_raster_map(maps, output_fns[['map']])
 
-    out_fns <- set_output_file_names(predict_var, tile_num)
-
-    write_output_raster_map(out_map, out_map_all, out_fns['map'])
-    write_ATL08_table(predict_var, xtable, out_fns['train'])
-    write_single_model_summary(xtable, predict_var, pred_vars, out_fns)
 }
 
 # ####################### Run code ##############################
@@ -827,7 +903,7 @@ expand_training <- 'TRUE'
 local_train_perc <- 100
 min_icesat2_samples <- 5000
 max_n <- 10000
-
+calculate_uncertainty <- TRUE
 predict_var <- 'AGB'
 #predict_var <- 'Ht'
 
@@ -908,6 +984,7 @@ maps<-mapBoreal(ice2_30_atl08_path=data_table_file,
                 maxDOY=maxDOY,
                 max_sol_el=max_sol_el,
                 expand_training=expand_training,
+                calculate_uncertainty=calculate_uncertainty,
                 local_train_perc=local_train_perc,
                 min_icesat2_samples=min_icesat2_samples,
                 boreal_poly=boreal_poly,
