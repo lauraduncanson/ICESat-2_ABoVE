@@ -404,6 +404,7 @@ run_modeling_pipeline <-function(rds_models, all_train_data, boreal_poly,
 
   print('calculating tile and boreal summaries')
   summary <- tile_and_boreal_summary(map, predict_var, boreal_poly, summary_and_convert_functions)
+  cat('tile_summary:', summary$tile_summary, ' boreal summary:', summary$boreal_summary, '\n')
 
   t2 <- Sys.time()
   cat('pipeline runtime:', t2 - t1, ' (s)\n')
@@ -436,7 +437,7 @@ adjust_sd_thresh <- function(n_models, default_sd_thresh=0.05){
   return(default_sd_thresh)
 }
 
-run_uncertainty_calculation <- function(fixed_modeling_pipeline_params, number_of_iterations, results){
+run_uncertainty_calculation <- function(fixed_modeling_pipeline_params, uncertainty_iterations, results){
   sd_thresh <- 0.05
   last_n <- 9 # kind of arbitrary
   # sd_diff can be initialized to anything bigger than sd_thresh
@@ -455,19 +456,20 @@ run_uncertainty_calculation <- function(fixed_modeling_pipeline_params, number_o
   while(sd_diff > sd_thresh && this_iter < uncertainty_iterations){
     cat('Uncertainty loop, iteration:', this_iter, '\n')
     results <- do.call(run_modeling_pipeline, params)
-    cat('tile_summary:', results[['tile_summary']])
-    cat(' boreal_summary:', results[['tile_summary']], '\n')
+
     map <- c(map, results[['map']])
     tile_summary <- c(tile_summary, results[['tile_summary']])
     boreal_summary <- c(boreal_summary, results[['boreal_summary']])
+
     if (this_iter > last_n){
       sd_diff <- sd_change_relative_to_baseline(tile_summary, last_n=last_n)
       cat('sd_diff:', sd_diff, '\n')
     }
+
     sd_thresh <- adjust_sd_thresh(this_iter)
     this_iter <- this_iter + 1
   }
-  # report_convergence(sd_diff, sd_thresh, this_rep, max_iters)
+
   return(list(map=map, tile_summary=tile_summary, boreal_summary=boreal_summary))
 }
 
@@ -512,17 +514,12 @@ mapBoreal<-function(ice2_30_atl08_path,
   write_ATL08_table(predict_var, results[['train_df']], output_fns[['train']])
   write_single_model_summary(results[['model']], results[['train_df']],  predict_var, output_fns)
 
-  print('First Prediction Results:')
-  cat('tile_summary:', results[['tile_summary']])
-  cat(' boreal_summary:', results[['tile_summary']], '\n')
-
   if (calculate_uncertainty) {
     results <- run_uncertainty_calculation(fixed_modeling_pipeline_params, uncertainty_iterations, results)
   }
   print('AGB successfully predicted!')
   write_output_summaries(results[['tile_summary']], results[['boreal_summary']], predict_var,  output_fns[['summary']])
   write_output_raster_map(results[['map']], output_fns[['map']])
-
 }
 
 # ####################### Run code ##############################
@@ -601,7 +598,7 @@ local_train_perc <- 100
 min_icesat2_samples <- 5000
 max_n <- 10000
 calculate_uncertainty <- TRUE
-uncertainty_iterations <- 30
+uncertainty_iterations <- 11
 predict_var <- 'AGB'
 #predict_var <- 'Ht'
 
@@ -668,9 +665,6 @@ mask_input_stack <- function(stack){
 stack_poly <- resample_or_reproject_inputs()
 stack <- if (mask_stack) mask_input_stack(stack_poly[['stack']]) else stack_poly[['stack']]
 boreal_poly <- stack_poly[['boreal_poly']]
-
-
-print("modelling begins")
 
 set.seed(123)
 NTREE = 30
