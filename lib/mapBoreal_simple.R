@@ -436,16 +436,51 @@ adjust_sd_thresh <- function(n_models, default_sd_thresh=0.05){
   return(default_sd_thresh)
 }
 
+run_uncertainty_calculation <- function(fixed_modeling_pipeline_params, number_of_iterations, results){
+  sd_thresh <- 0.05
+  last_n <- 9 # kind of arbitrary
+  # sd_diff can be initialized to anything bigger than sd_thresh
+  sd_diff <- sd_thresh + 1
+  this_iter <- 1
+
+  map <- c(results[['map']])
+  tile_summary <- c(results[['tile_summary']])
+  boreal_summary <- c(results[['boreal_summary']])
+
+  params <- modifyList(
+    fixed_modeling_pipeline_params,
+    list(max_n=1000, randomize=TRUE, model_config=list(ntree=NTREE))
+  )
+
+  while(sd_diff > sd_thresh && this_iter < uncertainty_iterations){
+    cat('Uncertainty loop, iteration:', this_iter, '\n')
+    results <- do.call(run_modeling_pipeline, params)
+    cat('tile_summary:', results[['tile_summary']])
+    cat(' boreal_summary:', results[['tile_summary']], '\n')
+    map <- c(map, results[['map']])
+    tile_summary <- c(tile_summary, results[['tile_summary']])
+    boreal_summary <- c(boreal_summary, results[['boreal_summary']])
+    if (this_iter > last_n){
+      sd_diff <- sd_change_relative_to_baseline(tile_summary, last_n=last_n)
+      cat('sd_diff:', sd_diff, '\n')
+    }
+    sd_thresh <- adjust_sd_thresh(this_iter)
+    this_iter <- this_iter + 1
+  }
+  # report_convergence(sd_diff, sd_thresh, this_rep, max_iters)
+  return(list(map=map, tile_summary=tile_summary, boreal_summary=boreal_summary))
+}
+
 mapBoreal<-function(ice2_30_atl08_path,
                     ice2_30_sample_path,
                     offset=100,
-                    rep=10,
                     stack=stack,
                     minDOY=1,
                     maxDOY=365,
                     max_sol_el=0,
                     expand_training=TRUE,
                     calculate_uncertainty=TRUE,
+                    uncertainty_iterations=10,
                     local_train_perc=100,
                     min_icesat2_samples=5000,
                     boreal_poly=boreal_poly,
@@ -477,49 +512,16 @@ mapBoreal<-function(ice2_30_atl08_path,
   write_ATL08_table(predict_var, results[['train_df']], output_fns[['train']])
   write_single_model_summary(results[['model']], results[['train_df']],  predict_var, output_fns)
 
-  maps <- c(results[['map']])
-  tile_summaries <- c(results[['tile_summary']])
-  boreal_summaries <- c(results[['boreal_summary']])
-
   print('First Prediction Results:')
   cat('tile_summary:', results[['tile_summary']])
   cat(' boreal_summary:', results[['tile_summary']], '\n')
 
   if (calculate_uncertainty) {
-    # loop variables
-    sd_thresh <- 0.05
-    last_n <- 9
-    # can be initialized to anything bigger than sd_thresh
-    sd_diff <- sd_thresh + 1
-    this_rep <- 1
-    # Here sample size is reduced from 10K to 1K, and by setting randmize=TRUE
-    # the linear AGB models are randomized, also, the default random forest mtry is used
-    params <- modifyList(
-      fixed_modeling_pipeline_params,
-      list(max_n=1000, randomize=TRUE, model_config=list(ntree=NTREE))
-    )
-
-    while(sd_diff > sd_thresh && this_rep < rep){
-      cat('Uncertainty loop, iteration:', this_rep, '\n')
-      results <- do.call(run_modeling_pipeline, params)
-      cat('tile_summary:', results[['tile_summary']])
-      cat(' boreal_summary:', results[['tile_summary']], '\n')
-      maps <- c(maps, results[['map']])
-      tile_summaries <- c(tile_summaries, results[['tile_summary']])
-      boreal_summaries <- c(boreal_summaries, results[['boreal_summary']])
-      if (this_rep > last_n){
-        sd_diff <- sd_change_relative_to_baseline(tile_summaries, last_n=last_n)
-        cat('sd_diff:', sd_diff, '\n')
-      }
-      sd_thresh <- adjust_sd_thresh(this_rep)
-      this_rep <- this_rep + 1
-    }
-
-    # report_convergence(sd_diff, sd_thresh, this_rep, max_iters)
+    results <- run_uncertainty_calculation(fixed_modeling_pipeline_params, uncertainty_iterations, results)
   }
   print('AGB successfully predicted!')
-  write_output_summaries(tile_summaries, boreal_summaries, predict_var,  output_fns[['summary']])
-  write_output_raster_map(maps, output_fns[['map']])
+  write_output_summaries(results[['tile_summary']], results[['boreal_summary']], predict_var,  output_fns[['summary']])
+  write_output_raster_map(results[['map']], output_fns[['map']])
 
 }
 
@@ -591,7 +593,6 @@ SAR_stack_file <- '~/Downloads/inputs/SAR_S1_2020_1613_cog.tif'
 ## boreal_vect <- '~/Downloads/dps_outputs/wwf_circumboreal_Dissolve.geojson'
 
 mask_stack <- 'TRUE'
-iters <- 30
 minDOY <- 130
 maxDOY <- 250
 max_sol_el <- 5
@@ -600,6 +601,7 @@ local_train_perc <- 100
 min_icesat2_samples <- 5000
 max_n <- 10000
 calculate_uncertainty <- TRUE
+uncertainty_iterations <- 30
 predict_var <- 'AGB'
 #predict_var <- 'Ht'
 
@@ -675,13 +677,13 @@ NTREE = 30
 maps<-mapBoreal(ice2_30_atl08_path=data_table_file,
                 ice2_30_sample=data_sample_file,
                 offset=100.0,
-                rep=iters,
                 stack=stack,
                 minDOY=minDOY,
                 maxDOY=maxDOY,
                 max_sol_el=max_sol_el,
                 expand_training=expand_training,
                 calculate_uncertainty=calculate_uncertainty,
+                uncertainty_iterations=uncertainty_iterations,
                 local_train_perc=local_train_perc,
                 min_icesat2_samples=min_icesat2_samples,
                 boreal_poly=boreal_poly,
