@@ -131,106 +131,94 @@ sd_change_relative_to_baseline <- function(arr, last_n){
 }
 
 DOY_and_solar_filter <- function(tile_data, start_DOY, end_DOY, solar_elevation){
-  filter <- which(tile_data$doy >= start_DOY & tile_data$doy <= end_DOY & tile_data$solar_elevation <= solar_elevation)
+  filter <- which(tile_data$doy >= start_DOY & tile_data$doy <= end_DOY & tile_data$solar_elevation < solar_elevation)
   return(filter)
 }
 
-late_season_filter <- function(tile_data, minDOY, maxDOY, min_icesat2_samples, max_sol_el){
+late_season_filter <- function(tile_data, minDOY, maxDOY, default_maxDOY, min_icesat2_samples, max_sol_el){
+  n_late <- 0
+  for(late_months in 0:3) {
+    if(n_late < min_icesat2_samples) {
 
-  maxDOY_in_data = max(tile_data$doy)
+      default_maxDOY <- default_maxDOY + 30 * late_months
 
-  for(late_months in 0:3){
-
-    late_season_DOY = maxDOY + 30 * late_months
-    filter <- DOY_and_solar_filter(tile_data, minDOY, late_season_DOY, max_sol_el)
-
-    if(late_season_DOY >= maxDOY_in_data | length(filter) >= min_icesat2_samples)
-      break
+      if(default_maxDOY < maxDOY){
+        filter <- DOY_and_solar_filter(minDOY, default_maxDOY, max_sol_el)
+        n_late <- length(filter)
+      }
+    }
   }
-
-  return(list(filter=filter, late_season_DOY=late_season_DOY))
+  return(list(filter=filter, default_maxDOY=default_maxDOY))
 }
 
-early_and_late_season_filter <- function(tile_data, minDOY, late_season_DOY, min_icesat2_samples, max_sol_el){
-  minDOY_in_data = min(tile_data$doy)
-
+early_and_late_season_filter <- function(tile_data, minDOY, default_minDOY, default_maxDOY, min_icesat2_samples, max_sol_el){
+  n_early <- 0
   for(early_months in 0:3){
+    if(n_early < min_icesat2_samples){
+      default_minDOY <- default_minDOY - 30 * early_months
 
-    early_season_DOY = minDOY - 30 * early_months
-    filter <- DOY_and_solar_filter(tile_data, early_season_DOY, late_season_DOY, max_sol_el)
+      if(default_minDOY > minDOY){
+        filter <- DOY_and_solar_filter(default_minDOY, default_maxDOY, max_sol_el)
+        n_early <- length(filter)
+      }
+    }
 
-    if(early_season_DOY <= minDOY_in_data | length(filter) >= min_icesat2_samples)
-      break
   }
-
-  return(list(filter=filter, early_season_DOY=early_season_DOY))
+  return(list(filter=filter, default_minDOY=default_minDOY))
 }
 
-expand_training_around_growing_season <- function(tile_data, minDOY, maxDOY, max_sol_el, min_icesat2_samples){
-
-  # first try with no solar elevation
-  filter <- DOY_and_solar_filter(tile_data, minDOY, maxDOY, 0)
+expand_training_around_season <- function(tile_data, minDOY, maxDOY, default_minDOY, default_maxDOY, max_sol_el, min_icesat2_samples){
+  filter <- DOY_and_solar_filter(tile_data, minDOY, maxDOY, max_sol_el)
   if(length(filter) >= min_icesat2_samples){
-    print('returning enough data with min and max DOY and 0 elevation...')
+    cat('Found nough data with max_solar_elevation:', max_solar_elevation, '\n')
     return(tile_data[filter,])
   }
-
-  # next try with max solar elevation
-  filter <- DOY_and_solar_filter(tile_data, minDOY, maxDOY, max_sol_el)
-  if(length(filter) >= min_icesat2_samples)
-    return(tile_data[filter,])
-
   # next try expanding 1 month later in growing season, iteratively, up to 3 months
-  late_season_filter_and_doy <- late_season_filter(tile_data, minDOY, maxDOY, min_icesat2_samples, max_sol_el)
-  if(length(late_season_filter_and_doy$filter) >= min_icesat2_samples)
-    return(tile_data[late_season_filter_and_doy$filter,])
+  filter <- late_season_filter(tile_data, minDOY, maxDOY, default_maxDOY, min_icesat2_samples, max_sol_el)
+  if(length(filter$filter) >= min_icesat2_samples){
+    cat('Found enough data when expanding into late season DOY:', filter$default_maxDOY, '\n')
+    return(tile_data[filter$filter,])
+  }
 
   # next try expanding 1 month earlier in growing season, iteratively, up to 3 months
   # Note that the upper window might be later in the growing season from the previous call
+  current_default_maxDOY <- filter$default_maxDOY
+  filter <- early_and_late_season_filter(tile_data, minDOY, default_minDOY, current_default_maxDOY, min_icesat2_samples, max_sol_el)
+  if(length(filter$filter) >= min_icesat2_samples){
+    cat('Found enough data when expanding into early and late season DOY:[', filter$default_minDOY, ' ', default_minDOY,  ']\n')
+    return(tile_data[filter$filter,])
+  }
 
-  early_season_filter_and_doy <- early_and_late_season_filter(tile_data, minDOY, late_season_filter_and_doy$late_season_DOY, min_icesat2_samples, max_sol_el)
-  if(length(early_season_filter_and_doy$filter) >= min_icesat2_samples)
-    return(tile_data[early_season_filter_and_doy$filter,])
-
-  print("WARNING: min_icesat2_samples condition was not met, applying the extended filter to tile_data anyways")
-  return(tile_data[early_season_filter_and_doy$filter,])
+  print('Search into late and early season did not return enough data')
+  print('applying basic filter')
+  tile_data <- tile_data[DOY_and_solar_filter(tile_data, default_minDOY, default_maxDOY, 0),]
+  return(tile_data)
 }
 
 reduce_sample_size <- function(df, sample_size){
-
-  sample_ids <- seq(1, nrow(df))
-  df_sample_ids <- sample(sample_ids, sample_size, replace=FALSE)
-
-  return(df[df_sample_ids,])
+  return(df[sample(row.names(df), sample_size, replace=FALSE),])
 }
 
 remove_stale_columns <- function(df, column_names) {
-
   columns_to_remove <- intersect(names(df), column_names)
   df <- df[, !names(df) %in% columns_to_remove, drop=FALSE]
 
   return(df)
 }
 
-sample_broad_data_within_latitude <- function(broad_data, lat, threshold){
-
+sample_broad_data_within_latitude <- function(broad_data, lat, threshold, samples_needed){
   broad_within_lat <- which(broad_data$lat > (lat-threshold) & broad_data$lat < (lat+threshold))
   broad_data <- broad_data[broad_within_lat,]
-  broad_samp_ids <- seq(1, nrow(broad_data))
-  broad_sample_ids <- sample(broad_samp_ids, nrow(broad_data), replace=FALSE)
-  return(broad_data[broad_sample_ids,])
-
+  return(broad_data[sample(row.names(broad_data), samples_needed, replace=TRUE), ])
 }
 
-expand_training_with_broad_data <- function(broad_data, tile_data){
-
-  broad_data <- sample_broad_data_within_latitude(broad_data, min(tile_data$lat), 5)
+expand_training_with_broad_data <- function(broad_data, tile_data, samples_needed){
+  broad_data <- sample_broad_data_within_latitude(broad_data, min(tile_data$lat), 5, samples_needed)
   return(rbind(tile_data, broad_data))
 }
 
 remove_height_outliers <- function(all_train_data){
   # remove height outliers based on more than 3SD from the landcover mean
-
   return(
   all_train_data |>
     group_by(segment_landcover) |>
@@ -308,42 +296,56 @@ write_output_summaries <-function(tile_summaries, boreal_summaries, target, outp
   write.csv(df, output_fn, row.names=FALSE)
 }
 
-
 prepare_training_data <- function(ice2_30_atl08_path, ice2_30_sample_path, expand_training, minDOY, maxDOY, max_sol_el, min_icesat2_samples, local_train_perc, offset){
+  default_maxDOY <- 273
+  default_minDOY <- 121
   tile_data <- read.csv(ice2_30_atl08_path)
 
-  if(expand_training)
-    tile_data <- expand_training_around_growing_season(tile_data, minDOY, maxDOY, max_sol_el, min_icesat2_samples)
+  night_time_in_season <- DOY_and_solar_filter(tile_data, default_minDOY, default_maxDOY, 0)
+  cat('train data size before any filtering:', nrow(tile_data), '\n')
+  cat('length(night_time_in_season):', length(night_time_in_season), 'expand_training:', expand_training, ' min_n:', min_icesat2_samples, '\n')
 
-  cat('n_avail training:', nrow(tile_data), '\n')
+  if (length(night_time_in_season) < min_icesat2_samples && expand_training){
+    cat('running expansion:', length(night_time_in_season), '<', min_icesat2_samples, '\n')
+    tile_data <- expand_training_around_season(tile_data, minDOY, maxDOY, default_minDOY, default_maxDOY, max_sol_el, min_icesat2_samples)
+  }
+  else{
+    print('night time filter only')
+    tile_data <- tile_data[night_time_in_season, ]
+  }
+  cat('training data size after filtering:', nrow(tile_data), '\n')
   tile_data <- remove_stale_columns(tile_data, c("binsize", "num_bins"))
   broad_data <- read.csv(ice2_30_sample_path)
   broad_data <- remove_stale_columns(broad_data, c("X__index_level_0__", "geometry"))
 
   # take proportion of broad data we want based on local_train_perc
-  sample_local <- nrow(tile_data) * (local_train_perc/100)
+  sample_local <- ceiling(nrow(tile_data) * local_train_perc / 100)
   cat('sample_local:', sample_local, '\n')
-
-  if (sample_local < min_icesat2_samples)
+  if (sample_local < min_icesat2_samples){
+    cat('reducing sample size to', sample_local, ' from ', nrow(tile_data), 'to complete with broad data \n')
     tile_data <- reduce_sample_size(tile_data, sample_local)
+  }
 
   # sample from broad data to complete sample size
   # this will work if either there aren't enough local samples for n_min OR if there is forced broad sampling
   n_broad <- min_icesat2_samples - nrow(tile_data)
-  if(n_broad > 1)
-    all_train_data <- expand_training_with_broad_data(broad_data, tile_data)
-  else
-    all_train_data <- tile_data
+  if(n_broad > 1){
+    tile_data <- expand_training_with_broad_data(broad_data, tile_data, n_broad)
+    cat('training data size after augmenting with broad data:', nrow(tile_data), '\n')
+  }
 
-  all_train_data <- remove_height_outliers(all_train_data)
-  all_train_data <- na.omit(as.data.frame(all_train_data))
-  all_train_data <- rename_height_columns_to_match_pretrained_models(all_train_data)
-  all_train_data$h_canopy <- all_train_data$RH_98
-  all_train_data <- offset_RH_columns(all_train_data, offset)
-  all_train_data <- set_model_id_for_AGB_prediction(all_train_data)
-  str(all_train_data)
-  cat('table for model training generated with ', nrow(all_train_data), ' observations\n')
-  return(all_train_data)
+  tile_data <- remove_height_outliers(tile_data)
+  cat('training data size after removing height outliers', nrow(tile_data), '\n')
+  tile_data <- na.omit(tile_data)
+  cat('training data size after removing NAs', nrow(tile_data), '\n')
+
+  tile_data <- rename_height_columns_to_match_pretrained_models(tile_data)
+  tile_data$h_canopy <- tile_data$RH_98
+  tile_data <- offset_RH_columns(tile_data, offset)
+  tile_data <- set_model_id_for_AGB_prediction(tile_data)
+  str(tile_data)
+  cat('table for model training generated with ', nrow(tile_data), ' observations\n')
+  return(tile_data)
 }
 
 get_rds_models <- function(){
@@ -393,14 +395,19 @@ run_modeling_pipeline <-function(rds_models, all_train_data, boreal_poly,
   t1 <- Sys.time()
   print('creating AGB traing data frame.')
   train_df <- GEDI2AT08AGB(rds_models, all_train_data, randomize, max_n, sample)
+
   print('fitting model')
   model <- fit_model(model, model_config, train_df, pred_vars, predict_var)
+
   print('predicting biomass map')
   map <- predict_stack(model, stack)
+
   print('calculating tile and boreal summaries')
   summary <- tile_and_boreal_summary(map, predict_var, boreal_poly, summary_and_convert_functions)
+
   t2 <- Sys.time()
   cat('pipeline runtime:', t2 - t1, ' (s)\n')
+
   return(list(
     train_df=train_df, model=model, map=map,
     tile_summary=summary[['tile_summary']], boreal_summary=summary[['boreal_summary']]
@@ -434,8 +441,8 @@ mapBoreal<-function(ice2_30_atl08_path,
                     offset=100,
                     rep=10,
                     stack=stack,
-                    minDOY=121,
-                    maxDOY=273,
+                    minDOY=1,
+                    maxDOY=365,
                     max_sol_el=0,
                     expand_training=TRUE,
                     calculate_uncertainty=TRUE,
@@ -445,13 +452,12 @@ mapBoreal<-function(ice2_30_atl08_path,
                     predict_var,
                     max_n=10000,
                     pred_vars=c('elev', 'slope')){
-
   tile_num = tail(unlist(strsplit(path_ext_remove(ice2_30_atl08_path), "_")), n=1)
   cat("Modelling and mapping boreal AGB tile: ", tile_num, "\n")
 
   all_train_data <- prepare_training_data(
-    ice2_30_atl08_path, ice2_30_sample_path, minDOY, maxDOY, max_sol_el,
-    expand_training, min_icesat2_samples, local_train_perc, offset
+    ice2_30_atl08_path, ice2_30_sample_path, expand_training, minDOY,
+    maxDOY, max_sol_el, min_icesat2_samples, local_train_perc, offset
   )
 
   fixed_modeling_pipeline_params <- list(
@@ -590,7 +596,7 @@ ppside <- 1
 minDOY <- 130
 maxDOY <- 250
 max_sol_el <- 5
-expand_training <- 'TRUE'
+expand_training <- TRUE
 local_train_perc <- 100
 min_icesat2_samples <- 5000
 max_n <- 10000
@@ -607,7 +613,9 @@ print(paste0("Do mask? ", mask_stack))
 
 library(randomForest)
 library(dplyr)
-# library(rockchalk)
+library(fs)
+library(stringr)
+library(rockchalk)
 library(terra)
 
 
