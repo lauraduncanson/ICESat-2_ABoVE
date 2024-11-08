@@ -44,7 +44,7 @@ offset_RH_columns <- function(all_train_data, offset){
 
   return(
     all_train_data |>
-      mutate(across(RH_columns, ~. + offset))
+      mutate(across(all_of(RH_columns), ~. + offset))
   )
 }
 
@@ -251,7 +251,7 @@ write_ATL08_table <- function(target, df, out_file_path){
 
 write_single_model_summary <- function(model, df, target, out_fns){
   target <- if(target == 'AGB') df$AGB else df$RH_98
-  local_model <- lm(model$predicted ~ target, na.rm=TRUE)
+  local_model <- lm(model$predicted ~ target)
   saveRDS(model, file=out_fns['model'])
 
   rsq <- max(model$rsq, na.rm=T)
@@ -592,7 +592,6 @@ SAR_stack_file <- '~/Downloads/inputs/SAR_S1_2020_1613_cog.tif'
 
 mask_stack <- 'TRUE'
 iters <- 30
-ppside <- 1
 minDOY <- 130
 maxDOY <- 250
 max_sol_el <- 5
@@ -604,7 +603,6 @@ calculate_uncertainty <- TRUE
 predict_var <- 'AGB'
 #predict_var <- 'Ht'
 
-ppside <- as.double(ppside)
 minDOY <- as.double(minDOY)
 maxDOY <- as.double(maxDOY)
 max_sol_el <- as.double(max_sol_el)
