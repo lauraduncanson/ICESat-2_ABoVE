@@ -25,6 +25,14 @@
 #### iii) Outputs
 ####  COGs of predicted 30-m AGBD, SD AGBD
 
+library(optparse)
+library(randomForest)
+library(dplyr)
+library(fs)
+library(stringr)
+library(rockchalk)
+library(terra)
+
 get_height_column_names <- function(in_data){
   return(
     names(in_data)[grep('^RH_[0-9]{2}$', names(in_data))]
@@ -433,10 +441,10 @@ fit_model <- function(model, model_config, train_df, pred_vars, predict_var){
 run_modeling_pipeline <-function(rds_models, all_train_data, boreal_poly,
                                  model, model_config, randomize,
                                  summary_and_convert_functions,
-                                 max_n, sample, pred_vars, predict_var, stack){
+                                 max_samples, sample, pred_vars, predict_var, stack){
   t1 <- Sys.time()
   print('creating AGB traing data frame.')
-  train_df <- GEDI2AT08AGB(rds_models, all_train_data, randomize, max_n, sample)
+  train_df <- GEDI2AT08AGB(rds_models, all_train_data, randomize, max_samples, sample)
 
   print('fitting model')
   model <- fit_model(model, model_config, train_df, pred_vars, predict_var)
@@ -492,7 +500,7 @@ run_uncertainty_calculation <- function(fixed_modeling_pipeline_params, uncertai
 
   params <- modifyList(
     fixed_modeling_pipeline_params,
-    list(max_n=1000, randomize=TRUE, model_config=list(ntree=NTREE))
+    list(max_samples=1000, randomize=TRUE, model_config=list(ntree=30))
   )
 
   while(sd_diff > sd_thresh && this_iter < uncertainty_iterations){
@@ -515,177 +523,36 @@ run_uncertainty_calculation <- function(fixed_modeling_pipeline_params, uncertai
   return(list(map=map, tile_summary=tile_summary, boreal_summary=boreal_summary))
 }
 
-mapBoreal<-function(ice2_30_atl08_path,
-                    ice2_30_sample_path,
-                    offset=100,
-                    stack=stack,
-                    minDOY=1,
-                    maxDOY=365,
-                    max_sol_el=0,
-                    expand_training=TRUE,
-                    calculate_uncertainty=TRUE,
-                    uncertainty_iterations=10,
-                    local_train_perc=100,
-                    min_icesat2_samples=5000,
-                    boreal_poly=boreal_poly,
-                    predict_var,
-                    max_n=10000,
-                    pred_vars=c('elev', 'slope')){
-  tile_num = tail(unlist(strsplit(path_ext_remove(ice2_30_atl08_path), "_")), n=1)
-  cat("Modelling and mapping boreal AGB tile: ", tile_num, "\n")
-
-  all_train_data <- prepare_training_data(
-    ice2_30_atl08_path, ice2_30_sample_path, expand_training, minDOY,
-    maxDOY, max_sol_el, min_icesat2_samples, local_train_perc, offset
-  )
-
-  fixed_modeling_pipeline_params <- list(
-    rds_models=get_rds_models(), all_train_data=all_train_data, boreal_poly=boreal_poly,
-    pred_vars=pred_vars, predict_var=predict_var, stack=stack,
-    summary_and_convert_functions=get_summary_and_convert_functions(predict_var),
-    model=randomForest, sample=TRUE
-  )
-
-  results <- do.call(run_modeling_pipeline, modifyList(
-    fixed_modeling_pipeline_params,
-    list(max_n=max_n, randomize=FALSE, model_config=list(ntree=NTREE, mtry=6))
-  ))
-
-  output_fns <- set_output_file_names(predict_var, tile_num)
-
-  write_ATL08_table(predict_var, results[['train_df']], output_fns[['train']])
-  write_single_model_summary(results[['model']], results[['train_df']],  predict_var, output_fns)
-
-  if (calculate_uncertainty) {
-    results <- run_uncertainty_calculation(fixed_modeling_pipeline_params, uncertainty_iterations, results)
-  }
-  print('AGB successfully predicted!')
-  write_output_summaries(results[['tile_summary']], results[['boreal_summary']], predict_var,  output_fns[['summary']])
-  write_output_raster_map(results[['map']], output_fns[['map']])
-}
-
-# ####################### Run code ##############################
-
-# Get command line args
-# args = commandArgs(trailingOnly=TRUE)
-# #rds_filelist <- args[1]
-# data_table_file <- args[1]
-# topo_stack_file <- args[2]
-# l8_stack_file <- args[3]
-# LC_mask_file <- args[4]
-# DO_MASK_WITH_STACK_VARS <- args[5]
-# data_sample_file <- args[6]
-# iters <- args[7]
-# ppside <- args[8]
-# minDOY <- args[9]
-# maxDOY <- args[10]
-# max_sol_el <- args[11]
-# expand_training <- args[12]
-# local_train_perc <- args[13]
-# min_n <- args[14]
-# boreal_vect <- args[15]
-# predict_var <- args[16]
-# max_n <- args[17]
-# pred_vars <- args[18]
-# print(pred_vars)
-# print('max_n:')
-# print(max_n)
-pred_vars = '~/Downloads/dps_output/pred_vars.txt'
-pred_vars <- as.character(read.table(pred_vars, header=FALSE, sep=' ')[1,])
-setwd('~/')
-# print('pred_vars:')
-# print(pred_vars)
-
-#for debugging replace args with hard paths
-#data_table_file <- '/projects/my-private-bucket/dps_output/run_tile_atl08_ubuntu/tile_atl08/2022/11/30/19/22/04/120959/atl08_005_30m_filt_topo_landsat_20221130_1216.csv'
-#topo_stack_file <- '/projects/shared-buckets/nathanmthomas/alg_34_testing/Copernicus_1216_covars_cog_topo_stack.tif'
-#l8_stack_file <- '/projects/shared-buckets/nathanmthomas/alg_34_testing/HLS_1216_06-15_09-01_2019_2021.tif'
-#LC_mask_file <- '/projects/shared-buckets/nathanmthomas/alg_34_testing/esa_worldcover_v100_2020_1216_cog.tif'
-
-## data_table_file <- '~/Downloads/dps_output/atl08_006_030m_2020_2020_06_09_filt_covars_merge_neighbors_034673.csv'
-## topo_stack_file <- '~/Downloads/dps_output/CopernicusGLO30_34673_cog_topo_stack.tif'
-## l8_stack_file <- '~/Downloads/dps_output/HLS_34673_07-01_08-31_2023_2023.tif'
-## LC_mask_file <- '~/Downloads/dps_output/esa_worldcover_v100_2020_34673_cog.tif'
-## data_sample_file <- '~/Downloads/dps_output/boreal_train_data_2020_n3.csv'
-## boreal_vect <- '~/Downloads/dps_output/wwf_circumboreal_Dissolve.geojson'
-
-## data_table_file <- '~/Downloads/inputs/atl08_006_030m_2020_2020_06_09_filt_covars_merge_neighbors_363400.csv'
-## topo_stack_file <- '~/Downloads/inputs/CopernicusGLO30_363400_cog_topo_stack.tif'
-## LC_mask_file <- '~/Downloads/inputs/esa_worldcover_v100_2020_363400_cog.tif'
-## l8_stack_file <- '~/Downloads/inputs/HLS_363400_07-01_08-31_2020_2020.tif'
-## SAR_stack_file <- '~/Downloads/inputs/SAR_S1_2020_363400_cog.tif'
-
-data_sample_file <- '~/Downloads/dps_outputs/boreal_train_data_2020_n3.csv'
-boreal_vect <- '~/Downloads/dps_output/wwf_circumboreal_Dissolve.geojson'
-
-data_table_file <- '~/Downloads/inputs/atl08_006_030m_2020_2020_06_09_filt_covars_merge_neighbors_001613.csv'
-topo_stack_file <- '~/Downloads/inputs/CopernicusGLO30_1613_cog_topo_stack.tif'
-LC_mask_file <- '~/Downloads/inputs/esa_worldcover_v100_2020_1613_cog.tif'
-l8_stack_file <- '~/Downloads/inputs/HLS_1613_07-01_08-31_2020_2020.tif'
-SAR_stack_file <- '~/Downloads/inputs/SAR_S1_2020_1613_cog.tif'
-
-## data_table_file <- '~/Downloads/dps_outputs/atl08_006_030m_2020_2020_06_09_filt_covars_merge_neighbors_004104.csv'
-## topo_stack_file <- '~/Downloads/dps_outputs/CopernicusGLO30_4104_cog_topo_stack.tif'
-## LC_mask_file <- '~/Downloads/dps_outputs/esa_worldcover_v100_2020_4104_cog.tif'
-## l8_stack_file <- '~/Downloads/dps_outputs/HLS_4104_07-01_08-31_2020_2020.tif'
-## data_sample_file <- '~/Downloads/dps_outputs/boreal_train_data_2020_n3.csv'
-## boreal_vect <- '~/Downloads/dps_outputs/wwf_circumboreal_Dissolve.geojson'
-
-mask_stack <- 'TRUE'
-minDOY <- 130
-maxDOY <- 250
-max_sol_el <- 5
-expand_training <- TRUE
-local_train_perc <- 100
-min_icesat2_samples <- 5000
-max_n <- 10000
-calculate_uncertainty <- TRUE
-uncertainty_iterations <- 11
-predict_var <- 'AGB'
-#predict_var <- 'Ht'
-
-minDOY <- as.double(minDOY)
-maxDOY <- as.double(maxDOY)
-max_sol_el <- as.double(max_sol_el)
-local_train_perc <- as.double(local_train_perc)
-print(paste0("Do mask? ", mask_stack))
-
-library(randomForest)
-library(dplyr)
-library(fs)
-library(stringr)
-library(rockchalk)
-library(terra)
-
-
-resample_or_reproject_inputs <- function(){
-  topo <- rast(topo_stack_file)
-  l8 <- rast(l8_stack_file)
-  lc <- rast(LC_mask_file)
+resample_reproject_and_mask <- function(topo_path, hls_path, lc_path, mask){
+  topo <- rast(topo_path)
+  hls <- rast(hls_path)
+  lc <- rast(lc_path)
   #sar <- rast(SAR_stack_file)
 
-  if (nrow(topo) != nrow(l8) || ncol(topo) != ncol(l8)){
-    topo <- resample(topo, l8, method = 'near')
-    ext(topo) <- ext(l8)
+  if (nrow(topo) != nrow(hls) || ncol(topo) != ncol(hls)){
+    topo <- resample(topo, hls, method = 'near')
+    ext(topo) <- ext(hls)
   }
-  if (nrow(lc) != nrow(l8) || ncol(lc) != ncol(l8)){
-    lc <- resample(lc, l8, method = 'near')
-    ext(lc) <- ext(l8)
+  if (nrow(lc) != nrow(hls) || ncol(lc) != ncol(hls)){
+    lc <- resample(lc, hls, method = 'near')
+    ext(lc) <- ext(hls)
   }
-  ## if (nrow(sar) != nrow(l8) || ncol(sar) != ncol(l8)){
-  ##   sar <- resample(sar, l8, method = 'near')
-  ##   ext(sar) <- ext(l8)
+  ## if (nrow(sar) != nrow(hls) || ncol(sar) != ncol(hls)){
+  ##   sar <- resample(sar, hls, method = 'near')
+  ##   ext(sar) <- ext(hls)
   ## }
 
-  stack <- c(l8, topo, lc)
-  boreal_poly <- project(vect(boreal_vect), crs(l8))
+  stack <- c(hls, topo, lc)
 
-  return(list("stack" = stack, "boreal_poly" = boreal_poly))
+  if(mask)
+    stack <- mask_input_stack(stack)
+
+  return(stack)
 }
 
 mask_input_stack <- function(stack){
   MASK_LYR_NAMES = c('slopemask', 'ValidMask')
-  MASK_LANDCOVER_NAMES = c(50, 70, 80, 100)
+  MASK_LANDCOVER_NAMES = c(50, 60, 70, 80, 100)
 
   print("Masking stack...")
   # Bricking the stack will make the masking faster (i think)
@@ -704,25 +571,136 @@ mask_input_stack <- function(stack){
   return(stack)
 }
 
-stack_poly <- resample_or_reproject_inputs()
-stack <- if (mask_stack) mask_input_stack(stack_poly[['stack']]) else stack_poly[['stack']]
-boreal_poly <- stack_poly[['boreal_poly']]
+mapBoreal<-function(atl08_path, broad_path, hls_path, topo_path, lc_path, boreal_vector_path,
+                    mask=TRUE, max_sol_el=0, offset=100, minDOY=1, maxDOY=365, expand_training=TRUE,
+                    calculate_uncertainty=TRUE, uncertainty_iterations=30,
+                    local_train_perc=100, min_samples=5000, max_samples=10000,
+                    predict_var='AGB', pred_vars=c('elevation', 'slope', 'NDVI')){
 
-set.seed(123)
-NTREE = 30
-maps<-mapBoreal(ice2_30_atl08_path=data_table_file,
-                ice2_30_sample=data_sample_file,
-                offset=100.0,
-                stack=stack,
-                minDOY=minDOY,
-                maxDOY=maxDOY,
-                max_sol_el=max_sol_el,
-                expand_training=expand_training,
-                calculate_uncertainty=calculate_uncertainty,
-                uncertainty_iterations=uncertainty_iterations,
-                local_train_perc=local_train_perc,
-                min_icesat2_samples=min_icesat2_samples,
-                boreal_poly=boreal_poly,
-                predict_var=predict_var,
-                max_n=max_n,
-                pred_vars=pred_vars)
+  tile_num = tail(unlist(strsplit(path_ext_remove(atl08_path), "_")), n=1)
+  cat("Modelling and mapping boreal AGB tile: ", tile_num, "\n")
+
+  stack <- resample_reproject_and_mask(topo_path, hls_path, lc_path, mask)
+  boreal_poly <- project(vect(boreal_vector_path), crs(stack))
+
+  pred_vars <- unlist(strsplit(pred_vars, split = " "))
+  print(pred_vars)
+
+  all_train_data <- prepare_training_data(
+    atl08_path, broad_path, expand_training, minDOY,
+    maxDOY, max_sol_el, min_samples, local_train_perc, offset
+  )
+
+  fixed_modeling_pipeline_params <- list(
+    rds_models=get_rds_models(), all_train_data=all_train_data, boreal_poly=boreal_poly,
+    pred_vars=pred_vars, predict_var=predict_var, stack=stack,
+    summary_and_convert_functions=get_summary_and_convert_functions(predict_var),
+    model=randomForest, sample=TRUE
+  )
+
+  results <- do.call(run_modeling_pipeline, modifyList(
+    fixed_modeling_pipeline_params,
+    list(max_samples=max_samples, randomize=FALSE, model_config=list(ntree=30, mtry=6))
+  ))
+
+  output_fns <- set_output_file_names(predict_var, tile_num)
+
+  write_ATL08_table(predict_var, results[['train_df']], output_fns[['train']])
+  write_single_model_summary(results[['model']], results[['train_df']],  predict_var, output_fns)
+
+  if (calculate_uncertainty) {
+    results <- run_uncertainty_calculation(fixed_modeling_pipeline_params, uncertainty_iterations, results)
+  }
+  print('AGB successfully predicted!')
+  write_output_summaries(results[['tile_summary']], results[['boreal_summary']], predict_var,  output_fns[['summary']])
+  write_output_raster_map(results[['map']], output_fns[['map']])
+}
+
+option_list <- list(
+  make_option(
+    c("-a", "--atl08_path"), type = "character",
+    help = "Path to the atl08 training data"
+  ),
+  make_option(
+    c("-b", "--broad_path"), type = "character",
+    help = "Path to the boreal wide training data"
+  ),
+  make_option(
+    c("-t", "--topo_path"), type = "character",
+    help = "Path to the topo stack file"
+  ),
+  make_option(
+    c("-h", "--hls_path"), type = "character",
+    help = "Path to the HLS stack file"
+  ),
+  make_option(
+    c("-l", "--lc_path"), type = "character",
+    help = "Path to the land cover mask file"
+  ),
+  make_option(
+    c("-v", "--boreal_vector_path"), type = "character",
+    help = "Path to the boreal vector file",
+  ),
+  make_option(
+    c("-m", "--mask"), type = "logical", default = TRUE,
+    help = "Whether to mask imagery [default: %default]"
+  ),
+  make_option(
+    c("-s", "--max_sol_el"), type = "numeric", default = 5,
+    help = "Maximum solar elevation degree allowed in training data [default: %default]"
+  ),
+  make_option(
+    c("--minDOY"), type = "integer", default = 130,
+    help = "Minimum day of year allowed in training data [default: %default]"
+  ),
+  make_option(
+    c("--maxDOY"), type = "integer", default = 250,
+    help = "Maximum day of year allowed in training data [default: %default]"
+  ),
+  make_option(
+    c("--min_samples"), type = "integer", default = 5000,
+    help = "Minimum number of samples to avoid augmenting the training data with broad data [default: %default]"
+  ),
+  make_option(
+    c("--max_samples"), type = "integer", default = 10000,
+    help = "Maximum number of samples used for training [default: %default]"
+  ),
+  make_option(
+    c("-u", "--calculate_uncertainty"), type = "logical", default = TRUE,
+    help = "Whether to calculate uncertainty [default: %default]"
+  ),
+  make_option(
+    c("-i", "--uncertainty_iterations"), type = "integer", default = 30,
+    help = "Number of uncertainty iterations [default: %default]"
+  ),
+  make_option(
+    c("-p", "--local_train_perc"), type = "integer", default = 100,
+    help = "Percent of atl08 data to be used in case it is augmented with broad data [default: %default]"
+  ),
+  make_option(
+    c("--predict_var"), type = "character", default = "AGB",
+    help = "Variable to predict, it can be either AGB or Ht [default: %default]"
+  ),
+  make_option(
+    c("--pred_vars"), type = "character",
+    default = "Red Green elevation slope tsri tpi NIR SWIR SWIR2 NDVI SAVI MSAVI NDMI EVI NBR NBR2 TCB TCG TCW",
+    help = "List of predictor variables, must be a subset from the default options, seperated by space, e.g, NDVI slope\n [default: %default]"
+  ),
+  make_option(
+    c("--help"), action = "store_true",
+    help = "Show help message"
+  )
+)
+
+opt_parser <- OptionParser(option_list = option_list, add_help_option = FALSE)
+opt <- parse_args(opt_parser)
+
+cat("Parsed arguments:\n")
+print(opt)
+
+if (!is.null(opt$help)) {
+  print("printing help?")
+  print_help(opt_parser)
+}
+
+do.call(mapBoreal, opt)
