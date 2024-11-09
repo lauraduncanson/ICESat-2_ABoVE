@@ -296,7 +296,7 @@ write_output_summaries <-function(tile_summaries, boreal_summaries, target, outp
   write.csv(df, output_fn, row.names=FALSE)
 }
 
-prepare_training_data <- function(ice2_30_atl08_path, ice2_30_sample_path, expand_training, minDOY, maxDOY, max_sol_el, min_icesat2_samples, local_train_perc, offset){
+read_and_filter_training_data <- function(ice2_30_atl08_path, expand_training, min_icesat2_samples, minDOY, maxDOY, max_sol_el){
   default_maxDOY <- 273
   default_minDOY <- 121
   tile_data <- read.csv(ice2_30_atl08_path)
@@ -315,12 +315,17 @@ prepare_training_data <- function(ice2_30_atl08_path, ice2_30_sample_path, expan
   }
   cat('training data size after filtering:', nrow(tile_data), '\n')
   tile_data <- remove_stale_columns(tile_data, c("binsize", "num_bins"))
+  return(tile_data)
+}
+
+augment_training_data_with_broad_data <- function(tile_data, ice2_30_sample_path, local_train_perc, min_icesat2_samples){
   broad_data <- read.csv(ice2_30_sample_path)
   broad_data <- remove_stale_columns(broad_data, c("X__index_level_0__", "geometry"))
 
   # take proportion of broad data we want based on local_train_perc
   sample_local <- ceiling(nrow(tile_data) * local_train_perc / 100)
   cat('sample_local:', sample_local, '\n')
+
   if (sample_local < min_icesat2_samples){
     cat('reducing sample size to', sample_local, ' from ', nrow(tile_data), 'to complete with broad data \n')
     tile_data <- reduce_sample_size(tile_data, sample_local)
@@ -333,18 +338,40 @@ prepare_training_data <- function(ice2_30_atl08_path, ice2_30_sample_path, expan
     tile_data <- expand_training_with_broad_data(broad_data, tile_data, n_broad)
     cat('training data size after augmenting with broad data:', nrow(tile_data), '\n')
   }
+  return(tile_data)
+}
 
-  tile_data <- remove_height_outliers(tile_data)
-  cat('training data size after removing height outliers', nrow(tile_data), '\n')
-  tile_data <- na.omit(tile_data)
-  cat('training data size after removing NAs', nrow(tile_data), '\n')
-
+reformat_training_data_for_AGB_modeling <- function(tile_data, offset){
   tile_data <- rename_height_columns_to_match_pretrained_models(tile_data)
   tile_data$h_canopy <- tile_data$RH_98
   tile_data <- offset_RH_columns(tile_data, offset)
   tile_data <- set_model_id_for_AGB_prediction(tile_data)
+  return(tile_data)
+}
+
+prepare_training_data <- function(ice2_30_atl08_path, ice2_30_sample_path,
+                                  expand_training, minDOY, maxDOY, max_sol_el,
+                                  min_icesat2_samples, local_train_perc, offset){
+  tile_data <- read_and_filter_training_data(
+    ice2_30_atl08_path, expand_training,
+    min_icesat2_samples, minDOY, maxDOY, max_sol_el
+  )
+
+  tile_data <- augment_training_data_with_broad_data(
+    tile_data, ice2_30_sample_path, local_train_perc, min_icesat2_samples
+  )
+
+  tile_data <- reformat_training_data_for_AGB_modeling(tile_data, offset)
+
+  tile_data <- remove_height_outliers(tile_data)
+  cat('training data size after removing height outliers', nrow(tile_data), '\n')
+
+  tile_data <- na.omit(tile_data)
+  cat('training data size after removing NAs', nrow(tile_data), '\n')
+
   str(tile_data)
   cat('table for model training generated with ', nrow(tile_data), ' observations\n')
+
   return(tile_data)
 }
 
