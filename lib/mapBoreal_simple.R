@@ -131,11 +131,15 @@ sd_change_relative_to_baseline <- function(arr, last_n){
 }
 
 DOY_and_solar_filter <- function(tile_data, start_DOY, end_DOY, solar_elevation){
-  filter <- which(tile_data$doy >= start_DOY & tile_data$doy <= end_DOY & tile_data$solar_elevation < solar_elevation)
+  filter <- which((tile_data$doy >= start_DOY) &
+                    (tile_data$doy <= end_DOY) &
+                    (tile_data$solar_elevation < solar_elevation)
+                  )
   return(filter)
 }
 
-late_season_filter <- function(tile_data, minDOY, maxDOY, default_maxDOY, min_icesat2_samples, max_sol_el){
+late_season_filter <- function(tile_data, minDOY, maxDOY,
+                               default_maxDOY, min_icesat2_samples, max_sol_el){
   n_late <- 0
   for(late_months in 0:3) {
     if(n_late < min_icesat2_samples) {
@@ -151,7 +155,9 @@ late_season_filter <- function(tile_data, minDOY, maxDOY, default_maxDOY, min_ic
   return(list(filter=filter, default_maxDOY=default_maxDOY))
 }
 
-early_and_late_season_filter <- function(tile_data, minDOY, default_minDOY, default_maxDOY, min_icesat2_samples, max_sol_el){
+early_and_late_season_filter <- function(tile_data, minDOY,
+                                         default_minDOY, default_maxDOY,
+                                         min_icesat2_samples, max_sol_el){
   n_early <- 0
   for(early_months in 0:3){
     if(n_early < min_icesat2_samples){
@@ -167,14 +173,18 @@ early_and_late_season_filter <- function(tile_data, minDOY, default_minDOY, defa
   return(list(filter=filter, default_minDOY=default_minDOY))
 }
 
-expand_training_around_season <- function(tile_data, minDOY, maxDOY, default_minDOY, default_maxDOY, max_sol_el, min_icesat2_samples){
+expand_training_around_season <- function(tile_data, minDOY, maxDOY,
+                                          default_minDOY, default_maxDOY,
+                                          max_sol_el, min_icesat2_samples){
   filter <- DOY_and_solar_filter(tile_data, minDOY, maxDOY, max_sol_el)
   if(length(filter) >= min_icesat2_samples){
     cat('Found nough data with max_solar_elevation:', max_solar_elevation, '\n')
     return(tile_data[filter,])
   }
   # next try expanding 1 month later in growing season, iteratively, up to 3 months
-  filter <- late_season_filter(tile_data, minDOY, maxDOY, default_maxDOY, min_icesat2_samples, max_sol_el)
+  filter <- late_season_filter(
+    tile_data, minDOY, maxDOY, default_maxDOY, min_icesat2_samples, max_sol_el
+  )
   if(length(filter$filter) >= min_icesat2_samples){
     cat('Found enough data when expanding into late season DOY:', filter$default_maxDOY, '\n')
     return(tile_data[filter$filter,])
@@ -183,9 +193,14 @@ expand_training_around_season <- function(tile_data, minDOY, maxDOY, default_min
   # next try expanding 1 month earlier in growing season, iteratively, up to 3 months
   # Note that the upper window might be later in the growing season from the previous call
   current_default_maxDOY <- filter$default_maxDOY
-  filter <- early_and_late_season_filter(tile_data, minDOY, default_minDOY, current_default_maxDOY, min_icesat2_samples, max_sol_el)
+  filter <- early_and_late_season_filter(
+    tile_data, minDOY, default_minDOY, current_default_maxDOY, min_icesat2_samples, max_sol_el
+  )
   if(length(filter$filter) >= min_icesat2_samples){
-    cat('Found enough data when expanding into early and late season DOY:[', filter$default_minDOY, ' ', default_minDOY,  ']\n')
+    cat(
+      'Found enough data when expanding into early and late season DOY:[',
+      filter$default_minDOY, ' ', default_minDOY,  ']\n'
+    )
     return(tile_data[filter$filter,])
   }
 
