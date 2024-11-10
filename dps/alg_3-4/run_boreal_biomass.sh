@@ -14,7 +14,7 @@ mkdir output
 # Note: the numbered args are fed in with the in_param_dict in the Run DPS chunk of 3.4_dps.ipynb
 ATL08_tindex_master_fn=${1}
 TOPO_TIF=${2}
-LANDSAT_TIF=${3}
+HLS_TIF=${3}
 LC_TIF=${4}
 DO_SLOPE_VALID_MASK=${5}
 ATL08_SAMPLE_CSV=${6}
@@ -22,7 +22,7 @@ in_tile_num=${7}
 in_tile_fn=${8}
 in_tile_field=${9}
 iters=${10}
-ppside=${11}
+calculate_uncertainty=${11}
 minDOY=${12}
 maxDOY=${13}
 max_sol_el=${14}
@@ -57,16 +57,7 @@ echo $ATL08_SAMPLE_CSV
 source activate r
 
 # Run mapBoreal with merged CSV as input
-cmd="Rscript ${basedir}/../../lib/mapBoreal_simple.R ${MERGED_ATL08_CSV} ${TOPO_TIF} ${LANDSAT_TIF} ${LC_TIF} ${DO_SLOPE_VALID_MASK} ${ATL08_SAMPLE_CSV} ${iters} ${ppside} ${minDOY} ${maxDOY} ${max_sol_el} ${expand_training} ${local_train_perc} ${min_n} ${boreal_vect_fn} ${predict_var} ${max_n} ${pred_vars}"
+cmd="Rscript ${basedir}/../../lib/mapBoreal_simple.R -a ${MERGED_ATL08_CSV} -t ${TOPO_TIF} -h ${HLS_TIF} -l ${LC_TIF} -m ${DO_SLOPE_VALID_MASK} -b ${ATL08_SAMPLE_CSV} -i ${iters} --minDOY ${minDOY} --maxDOY ${maxDOY} -s ${max_sol_el} -e ${expand_training} -p ${local_train_perc} --min_samples ${min_n} -v ${boreal_vect_fn} --predict_var ${predict_var} --max_samples ${max_n} --pred_vars ${pred_vars}"
 
 echo $cmd
 eval $cmd
-
-#convert output to cog - downgraded gdal to 3.3.3 in build_command_main.sh
-#source activate base
-
-#IN_TIF_NAME=$(ls ${PWD}/output/*tmp.tif)
-#OUT_TIF_NAME=$(echo ${IN_TIF_NAME%tmp.tif}.tif)
-
-#gdal_translate -of COG $IN_TIF_NAME $OUT_TIF_NAME -r average
-#rm $IN_TIF_NAME

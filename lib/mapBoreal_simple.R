@@ -666,6 +666,10 @@ option_list <- list(
     help = "Maximum number of samples used for training [default: %default]"
   ),
   make_option(
+    c("-e", "--expand_training"), type = "logical", default = TRUE,
+    help = "Whether to expand training around the season [default: %default]"
+  ),
+  make_option(
     c("-u", "--calculate_uncertainty"), type = "logical", default = TRUE,
     help = "Whether to calculate uncertainty [default: %default]"
   ),

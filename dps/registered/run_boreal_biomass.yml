@@ -1,6 +1,6 @@
 algorithm_description: Map aboveground biomass final output
 algorithm_name: run_boreal_biomass_map
-algorithm_version: boreal_agb_2024_v6
+algorithm_version: boreal_agb_dev
 build_command: icesat2_boreal/dps/build_command_agb.sh
 disk_space: 80GB
 docker_container_url: mas.maap-project.org/root/maap-workspaces/base_images/r:v4.1.0
@@ -16,8 +16,8 @@ inputs:
     name: in_topo_fn_url
     required: true
   - default: ''
-    description: landsat file
-    name: in_landsat_fn_url
+    description: HLS file
+    name: in_hls_fn_url
     required: true
   - default: ''
     description: landcover file
@@ -36,16 +36,12 @@ inputs:
     name: boreal_vect
     required: true
   - default: ''
-    description: pred_vars txtfile
-    name: pred_vars
-    required: true
-  - default: ''
     description: tar file of rds biomass models
     name: bio_models_tar_fn_url
     required: true
   positional:
   - default: ''
-    description: tindex file pos
+    description: tindex file used for merge neighbours algorithm pos
     name: in_atl08_fn
     required: true
   - default: ''
@@ -53,8 +49,8 @@ inputs:
     name: in_topo_fn
     required: true
   - default: ''
-    description: landsat file pos
-    name: in_landsat_fn
+    description: hls file pos
+    name: in_hls_fn
     required: true
   - default: ''
     description: landcover file pos
@@ -82,11 +78,11 @@ inputs:
     required: true
   - default: ''
     description: 'number of iterations to run for uncertainty '
-    name: iters
+    name: uncertainty_iterations
     required: true
   - default: ''
-    description: how many subtiles to preserve memory
-    name: ppside
+    description: Whether to calculate uncertainties
+    name: calculate_uncertainty
     required: true
   - default: ''
     description: earliest DOY for filtering
@@ -110,7 +106,7 @@ inputs:
     required: true
   - default: ''
     description: min sample size required for models
-    name: min_n
+    name: min_samples
     required: true
   - default: ''
     description: filename for boreal vector
@@ -122,12 +118,12 @@ inputs:
     required: true
   - default: ''
     description: max sample size allowed for models
-    name: max_n
+    name: max_samples
     required: true
   - default: ''
-    description: filename of predict variable file
-    name: pred_vars_fn
-    required: true   
+    description: space separated list of predictors
+    name: pred_vars
+    required: true
   - default: ''
     description: tar filename of biomass models
     name: bio_models_tar_fn
