@@ -399,9 +399,10 @@ prepare_training_data <- function(ice2_30_atl08_path, ice2_30_sample_path,
 }
 
 get_rds_models <- function(){
-  rds_model_fns <- list.files(path='~/dps_output/', pattern='*.rds', full.names = TRUE)
+  rds_model_fns <- list.files(pattern='*.rds')
   rds_models <- lapply(rds_model_fns, readRDS)
   names(rds_models) <- paste0("m",1:length(rds_models))
+  print(rds_models)
   return(rds_models)
 }
 
