@@ -501,7 +501,7 @@ run_uncertainty_calculation <- function(fixed_modeling_pipeline_params, uncertai
 
   params <- modifyList(
     fixed_modeling_pipeline_params,
-    list(max_samples=1000, randomize=TRUE, model_config=list(ntree=30))
+    list(max_samples=1000, randomize=TRUE, model_config=list(ntree=250))
   )
 
   while(sd_diff > sd_thresh && this_iter < uncertainty_iterations){
@@ -601,7 +601,7 @@ mapBoreal<-function(atl08_path, broad_path, hls_path, topo_path, lc_path, boreal
 
   results <- do.call(run_modeling_pipeline, modifyList(
     fixed_modeling_pipeline_params,
-    list(max_samples=max_samples, randomize=FALSE, model_config=list(ntree=30, mtry=6))
+    list(max_samples=max_samples, randomize=FALSE, model_config=list(ntree=500, mtry=6))
   ))
 
   output_fns <- set_output_file_names(predict_var, tile_num)
