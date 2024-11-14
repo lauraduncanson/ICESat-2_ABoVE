@@ -266,10 +266,10 @@ remove_height_outliers <- function(all_train_data){
   )
 }
 
-set_output_file_names <- function(predict_var, tile_num){
+set_output_file_names <- function(predict_var, tile_num, year){
   key <- if (predict_var == 'AGB') 'agb' else 'ht'
   out_fn_stem = paste(
-    paste0('output/boreal_', key), format(Sys.time(),"%Y%m%d%s"), str_pad(tile_num, 7, pad = "0"),
+    paste0('output/boreal_', key, '_', year), format(Sys.time(),"%Y%m%d%s"), str_pad(tile_num, 7, pad = "0"),
     sep="_"
   )
 
@@ -620,9 +620,9 @@ mask_input_stack <- function(stack){
   return(stack)
 }
 
-mapBoreal<-function(atl08_path, broad_path, hls_path, topo_path, lc_path, boreal_vector_path, sar_path=NULL,
-                    mask=TRUE, max_sol_el=0, offset=100, minDOY=1, maxDOY=365, expand_training=TRUE,
-                    calculate_uncertainty=TRUE, uncertainty_iterations=30,
+mapBoreal<-function(atl08_path, broad_path, hls_path, topo_path, lc_path, boreal_vector_path, year,
+                    sar_path=NULL, mask=TRUE, max_sol_el=0, offset=100, minDOY=1, maxDOY=365,
+                    expand_training=TRUE, calculate_uncertainty=TRUE, uncertainty_iterations=30,
                     local_train_perc=100, min_samples=5000, max_samples=10000,
                     predict_var='AGB', pred_vars=c('elevation', 'slope', 'NDVI')){
 
@@ -652,7 +652,7 @@ mapBoreal<-function(atl08_path, broad_path, hls_path, topo_path, lc_path, boreal
     list(max_samples=max_samples, randomize=FALSE, model_config=list(ntree=500, mtry=6))
   ))
 
-  output_fns <- set_output_file_names(predict_var, tile_num)
+  output_fns <- set_output_file_names(predict_var, tile_num, year)
 
   write_ATL08_table(predict_var, results[['train_df']], output_fns[['train']])
   write_single_model_summary(results[['model']], results[['train_df']],  predict_var, output_fns)
@@ -693,6 +693,10 @@ option_list <- list(
   make_option(
     c("-v", "--boreal_vector_path"), type = "character",
     help = "Path to the boreal vector file",
+    ),
+  make_option(
+    c("-y", "--year"), type = "character",
+    help = "Year of the input HLS imagery"
   ),
   make_option(
     c("-m", "--mask"), type = "logical", default = TRUE,

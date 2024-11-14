@@ -35,6 +35,7 @@ max_n=${20}
 pred_vars=${21}
 bio_models_tar_fn=${22}
 SAR_TIF=${23}
+year=${24}
 
 source activate icesat2_boreal
 
@@ -58,7 +59,7 @@ echo $ATL08_SAMPLE_CSV
 source activate r
 
 # Run mapBoreal with merged CSV as input
-cmd="Rscript ${basedir}/../../lib/mapBoreal_simple.R -a ${MERGED_ATL08_CSV} -t ${TOPO_TIF} -h ${HLS_TIF} -l ${LC_TIF} -s ${SAR_TIF} -m ${DO_SLOPE_VALID_MASK} -b ${ATL08_SAMPLE_CSV} -u ${calculate_uncertainty} -i ${iters} --minDOY ${minDOY} --maxDOY ${maxDOY} --max_sol_el ${max_sol_el} -e ${expand_training} -p ${local_train_perc} --min_samples ${min_n} -v ${boreal_vect_fn} --predict_var ${predict_var} --max_samples ${max_n} --pred_vars \"${pred_vars}\""
+cmd="Rscript ${basedir}/../../lib/mapBoreal_simple.R -a ${MERGED_ATL08_CSV} -t ${TOPO_TIF} -h ${HLS_TIF} -l ${LC_TIF} -s ${SAR_TIF} -m ${DO_SLOPE_VALID_MASK} -b ${ATL08_SAMPLE_CSV} -u ${calculate_uncertainty} -i ${iters} --minDOY ${minDOY} --maxDOY ${maxDOY} --max_sol_el ${max_sol_el} -e ${expand_training} -p ${local_train_perc} --min_samples ${min_n} -v ${boreal_vect_fn} --predict_var ${predict_var} --max_samples ${max_n} --pred_vars \"${pred_vars}\ -y ${year}""
 
 echo $cmd
 eval $cmd

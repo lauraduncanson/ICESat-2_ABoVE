@@ -136,6 +136,10 @@ inputs:
     description: sar file
     name: in_sar_fn
     required: false
+  - default: ''
+    description: year of the input HLS imagery
+    name: year
+    required: true
 
 queue: maap-dps-worker-32gb
 repository_url: https://github.com/aliz237/icesat2_boreal.git
