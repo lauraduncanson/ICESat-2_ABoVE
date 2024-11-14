@@ -1,6 +1,6 @@
 algorithm_description: Map aboveground biomass final output
 algorithm_name: run_boreal_biomass_map
-algorithm_version: boreal_agb_dev
+algorithm_version: sar_dev
 build_command: icesat2_boreal/dps/build_command_agb.sh
 disk_space: 80GB
 docker_container_url: mas.maap-project.org/root/maap-workspaces/base_images/r:v4.1.0
@@ -39,6 +39,10 @@ inputs:
     description: tar file of rds biomass models
     name: bio_models_tar_fn_url
     required: true
+  - default: null
+    description: sar file
+    name: in_sar_fn_url
+    required: false
   positional:
   - default: ''
     description: tindex file used for merge neighbours algorithm pos
@@ -128,6 +132,10 @@ inputs:
     description: tar filename of biomass models
     name: bio_models_tar_fn
     required: true
+  - default: null
+    description: sar file
+    name: in_sar_fn
+    required: false
 
 queue: maap-dps-worker-32gb
 repository_url: https://github.com/aliz237/icesat2_boreal.git

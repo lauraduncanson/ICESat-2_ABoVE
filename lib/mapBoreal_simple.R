@@ -61,8 +61,8 @@ set_model_id_for_AGB_prediction <- function(in_data, offset){
   return(
     in_data |>
       mutate(model_id = case_when(
-        segment_landcover %in% c(111, 113, 121, 123) ~ "m8",# "m3",
-        segment_landcover %in% c(112, 114, 122, 124) ~ "m8", # "m1",
+        segment_landcover %in% c(111, 113, 121, 123) ~ "m8",# "m3",# needle leaf
+        segment_landcover %in% c(112, 114, 122, 124) ~ "m8",# "m1",# broad leaf
         TRUE ~ "m8"
       )
       )
@@ -237,6 +237,21 @@ sample_broad_data_within_latitude <- function(broad_data, lat, threshold, sample
 
 expand_training_with_broad_data <- function(broad_data, tile_data, samples_needed){
   broad_data <- sample_broad_data_within_latitude(broad_data, min(tile_data$lat), 5, samples_needed)
+  # TODO this check may no longer be needed, ask Paul
+  if (!setequal(names(broad_data), names(tile_data))) {
+    only_in_broad <- setdiff(names(broad_data), names(tile_data))
+    only_in_local <- setdiff(names(tile_data), names(broad_data))
+    diff <- union(only_in_broad, only_in_local)
+    print('Warning!')
+    print('Boreal wide training data and local data have non matching columns!')
+    print('Will drop the following non matching columns and continue:')
+    print(diff)
+    common <- intersect(names(broad_data), names(tile_data))
+    tile_data <- tile_data[common]
+    broad_data <- broad_data[common]
+    print(common)
+  }
+
   return(rbind(tile_data, broad_data))
 }
 
@@ -374,7 +389,9 @@ reformat_training_data_for_AGB_modeling <- function(tile_data, offset){
 
 prepare_training_data <- function(ice2_30_atl08_path, ice2_30_sample_path,
                                   expand_training, minDOY, maxDOY, max_sol_el,
-                                  min_icesat2_samples, local_train_perc, offset){
+                                  min_icesat2_samples, local_train_perc, offset, stack_vars){
+  print('preparing training data ...')
+
   tile_data <- read_and_filter_training_data(
     ice2_30_atl08_path, expand_training,
     min_icesat2_samples, minDOY, maxDOY, max_sol_el
@@ -383,18 +400,29 @@ prepare_training_data <- function(ice2_30_atl08_path, ice2_30_sample_path,
   tile_data <- augment_training_data_with_broad_data(
     tile_data, ice2_30_sample_path, local_train_perc, min_icesat2_samples
   )
+  needed_cols <- union(
+    c('lat', 'lon', 'segment_landcover', 'h_canopy', 'rh25', 'rh50', 'rh60',
+      'rh70', 'rh75', 'rh80', 'rh85', 'rh90', 'rh95'),
+    stack_vars
+  )
+
+  tile_data <- tile_data |> select(all_of(needed_cols))
 
   tile_data <- reformat_training_data_for_AGB_modeling(tile_data, offset)
 
   tile_data <- remove_height_outliers(tile_data)
-  cat('training data size after removing height outliers', nrow(tile_data), '\n')
+  cat('training data size after removing height outliers:', nrow(tile_data), '\n')
 
-  tile_data <- na.omit(tile_data)
-  cat('training data size after removing NAs', nrow(tile_data), '\n')
+  tile_data <- tile_data |> filter(if_all(everything(), ~ !is.na(.x) & .x != -9999))
+  cat('training data size after removing NAs:', nrow(tile_data), '\n')
 
   str(tile_data)
   cat('table for model training generated with ', nrow(tile_data), ' observations\n')
 
+  if (nrow(tile_data) <= 1) {
+    # TODO another option could be to drop SAR columns and continue
+    stop('No traing data available, likley due to SAR being all -9999')
+  }
   return(tile_data)
 }
 
@@ -524,30 +552,51 @@ run_uncertainty_calculation <- function(fixed_modeling_pipeline_params, uncertai
   return(list(map=map, tile_summary=tile_summary, boreal_summary=boreal_summary))
 }
 
-resample_reproject_and_mask <- function(topo_path, hls_path, lc_path, mask){
-  topo <- rast(topo_path)
-  hls <- rast(hls_path)
-  lc <- rast(lc_path)
-  #sar <- rast(SAR_stack_file)
-
-  if (nrow(topo) != nrow(hls) || ncol(topo) != ncol(hls)){
-    topo <- resample(topo, hls, method = 'near')
-    ext(topo) <- ext(hls)
+resample_if_needed <- function(src, des){
+  if (nrow(src) != nrow(des) || ncol(src) != ncol(des)){
+    src <- resample(src, des, method = 'near')
+    ext(src) <- ext(des)
   }
-  if (nrow(lc) != nrow(hls) || ncol(lc) != ncol(hls)){
-    lc <- resample(lc, hls, method = 'near')
-    ext(lc) <- ext(hls)
-  }
-  ## if (nrow(sar) != nrow(hls) || ncol(sar) != ncol(hls)){
-  ##   sar <- resample(sar, hls, method = 'near')
-  ##   ext(sar) <- ext(hls)
-  ## }
+  return(src)
+}
 
-  stack <- c(hls, topo, lc)
+prepare_raster <- function(path, subset_bands=NULL, extra_bands=NULL, dest_raster=NULL){
+  raster <- rast(path)
+  raster_bands <- names(raster)
+
+  if (!is.null(subset_bands))
+    raster_bands <- intersect(raster_bands, subset_bands)
+
+  if (!is.null(extra_bands))
+    raster_bands <- c(raster_bands, extra_bands)
+
+  raster <- subset(raster, raster_bands)
+
+  if (!is.null(dest_raster))
+    raster <- resample_if_needed(raster, dest_raster)
+
+  return(raster)
+}
+
+resample_reproject_and_mask <- function(topo_path, hls_path, lc_path, pred_vars, mask, sar_path=NULL){
+  hls <- prepare_raster(hls_path, subset_bands=pred_vars, extra_bands='ValidMask')
+  topo <- prepare_raster(topo_path, subset_bands=pred_vars, extra_bands='slopemask', dest_raster=hls)
+  lc <- prepare_raster(lc_path, dest_raster=hls)
+
+  if (!is.null(sar_path)) {
+    sar <- prepare_raster(sar_path, subset_bands=pred_vars, dest_raster=hls)
+    stack <- c(hls, sar, topo, lc)
+  }
+  else {
+    stack <- c(hls, topo, lc)
+  }
 
   if(mask)
     stack <- mask_input_stack(stack)
 
+  # landcover mask is not needed anymore
+  # TODO I think masks are not probably needed once we leave this function
+  stack <- subset(stack, names(stack) != 'esa_worldcover_v100_2020')
   return(stack)
 }
 
@@ -558,7 +607,6 @@ mask_input_stack <- function(stack){
   print("Masking stack...")
   # Bricking the stack will make the masking faster (i think)
   # brick = rast(stack)
-
   for(LYR_NAME in MASK_LYR_NAMES){
     m <- terra::subset(stack, grep(LYR_NAME, names(stack), value = T))
     stack <- mask(stack, m == 0, maskvalue=TRUE)
@@ -572,7 +620,7 @@ mask_input_stack <- function(stack){
   return(stack)
 }
 
-mapBoreal<-function(atl08_path, broad_path, hls_path, topo_path, lc_path, boreal_vector_path,
+mapBoreal<-function(atl08_path, broad_path, hls_path, topo_path, lc_path, boreal_vector_path, sar_path=NULL,
                     mask=TRUE, max_sol_el=0, offset=100, minDOY=1, maxDOY=365, expand_training=TRUE,
                     calculate_uncertainty=TRUE, uncertainty_iterations=30,
                     local_train_perc=100, min_samples=5000, max_samples=10000,
@@ -581,15 +629,15 @@ mapBoreal<-function(atl08_path, broad_path, hls_path, topo_path, lc_path, boreal
   tile_num = tail(unlist(strsplit(path_ext_remove(atl08_path), "_")), n=1)
   cat("Modelling and mapping boreal AGB tile: ", tile_num, "\n")
 
-  stack <- resample_reproject_and_mask(topo_path, hls_path, lc_path, mask)
-  boreal_poly <- project(vect(boreal_vector_path), crs(stack))
-
   pred_vars <- unlist(strsplit(pred_vars, split = " "))
   print(pred_vars)
 
+  stack <- resample_reproject_and_mask(topo_path, hls_path, lc_path, pred_vars, mask, sar_path)
+  boreal_poly <- project(vect(boreal_vector_path), crs(stack))
+
   all_train_data <- prepare_training_data(
     atl08_path, broad_path, expand_training, minDOY,
-    maxDOY, max_sol_el, min_samples, local_train_perc, offset
+    maxDOY, max_sol_el, min_samples, local_train_perc, offset, names(stack)
   )
 
   fixed_modeling_pipeline_params <- list(
@@ -639,6 +687,10 @@ option_list <- list(
     help = "Path to the land cover mask file"
   ),
   make_option(
+    c("-s", "--sar_path"), type = "character", default = NULL,
+    help = "Path to the land cover mask file"
+  ),
+  make_option(
     c("-v", "--boreal_vector_path"), type = "character",
     help = "Path to the boreal vector file",
   ),
@@ -647,7 +699,7 @@ option_list <- list(
     help = "Whether to mask imagery [default: %default]"
   ),
   make_option(
-    c("-s", "--max_sol_el"), type = "numeric", default = 5,
+    c("--max_sol_el"), type = "numeric", default = 5,
     help = "Maximum solar elevation degree allowed in training data [default: %default]"
   ),
   make_option(
@@ -688,8 +740,16 @@ option_list <- list(
   ),
   make_option(
     c("--pred_vars"), type = "character",
-    default = "Red Green elevation slope tsri tpi NIR SWIR SWIR2 NDVI SAVI MSAVI NDMI EVI NBR NBR2 TCB TCG TCW",
-    help = "List of predictor variables, must be a subset from the default options, seperated by space, e.g, NDVI slope\n [default: %default]"
+    default = paste(
+      "Red Green elevation slope tsri tpi NIR SWIR SWIR2 NDVI",
+      "SAVI MSAVI NDMI EVI NBR NBR2 TCB TCG TCW",
+      "vv_median_frozen vh_median_frozen vv_median_summer",
+      "vh_median_summer vv_median_shoulder vh_median_shoulder"
+    ),
+    help = paste(
+      "List of predictor variables, must be a subset from the default options",
+      "seperated by space, e.g, NDVI slope\n [default: %default]"
+    )
   ),
   make_option(
     c("--help"), action = "store_true",
@@ -704,8 +764,6 @@ cat("Parsed arguments:\n")
 print(opt)
 
 if (!is.null(opt$help)) {
-  print("printing help?")
   print_help(opt_parser)
 }
-
 do.call(mapBoreal, opt)
