@@ -61,8 +61,8 @@ set_model_id_for_AGB_prediction <- function(in_data, offset){
   return(
     in_data |>
       mutate(model_id = case_when(
-        segment_landcover %in% c(111, 113, 121, 123) ~ "m8",# "m3",# needle leaf
-        segment_landcover %in% c(112, 114, 122, 124) ~ "m8",# "m1",# broad leaf
+        segment_landcover %in% c(111, 113, 121, 123) ~ "m3", # needle leaf
+        segment_landcover %in% c(112, 114, 122, 124) ~ "m1", # broad leaf
         TRUE ~ "m8"
       )
       )
