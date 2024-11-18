@@ -82,7 +82,6 @@ args+=(--year "${24}")
 [[ -n "${19}" ]] && args+=(--predict_var "${19}")
 [[ -n "${21}" ]] && args+=(--pred_vars "${21}")
 
-mapBoreal_R="Rscript ${libdir}/mapBoreal_simple.R"
-command=("${mapBoreal_R}" "${args[@]}")
+command=(Rscript "${libdir}/mapBoreal_simple.R" "${args[@]}")
 echo "${command[@]}"
-eval "${command[@]}"
+"${command[@]}"
