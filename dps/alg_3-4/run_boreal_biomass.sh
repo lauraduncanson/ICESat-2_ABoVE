@@ -4,7 +4,7 @@
 
 #source activate icesat2_boreal
 basedir=$( cd "$(dirname "$0")" ; pwd -P )
-
+libdir=$(dirname "$(dirname "${basedir}")")/lib
 #unset PROJ_LIB
 
 #pip install --user -r ${basedir}/requirements.txt
@@ -45,7 +45,7 @@ tar -xf ${bio_models_tar_fn}
 OUTPUTDIR="${PWD}/output"
 
 # Get the output merged CSV of filtered ATL08 for the input tile and its neighbors
-cmd="python ${basedir}/../../lib/merge_neighbors_atl08.py -in_tile_num ${in_tile_num} -in_tile_fn ${in_tile_fn} -in_tile_field ${in_tile_field} -csv_list_fn ${ATL08_tindex_master_fn} -out_dir ${OUTPUTDIR}"
+cmd="python ${libdir}/merge_neighbors_atl08.py -in_tile_num ${in_tile_num} -in_tile_fn ${in_tile_fn} -in_tile_field ${in_tile_field} -csv_list_fn ${ATL08_tindex_master_fn} -out_dir ${OUTPUTDIR}"
 
 echo $cmd
 eval $cmd
@@ -82,7 +82,7 @@ args+=(--year "${24}")
 [[ -n "${19}" ]] && args+=(--predict_var "${19}")
 [[ -n "${21}" ]] && args+=(--pred_vars "${21}")
 
-mapBoreal_R="Rscript ${basedir}/../../lib/mapBoreal_simple.R"
+mapBoreal_R="Rscript ${libdir}/mapBoreal_simple.R"
 command=("${mapBoreal_R}" "${args[@]}")
 echo "${command}"
 "${command[@]}"
