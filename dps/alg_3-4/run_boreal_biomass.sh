@@ -58,8 +58,31 @@ echo $ATL08_SAMPLE_CSV
 
 source activate r
 
-# Run mapBoreal with merged CSV as input
-cmd="Rscript ${basedir}/../../lib/mapBoreal_simple.R -a ${MERGED_ATL08_CSV} -t ${TOPO_TIF} -h ${HLS_TIF} -l ${LC_TIF} -s ${SAR_TIF} -m ${DO_SLOPE_VALID_MASK} -b ${ATL08_SAMPLE_CSV} -u ${calculate_uncertainty} -i ${iters} --minDOY ${minDOY} --maxDOY ${maxDOY} --max_sol_el ${max_sol_el} -e ${expand_training} -p ${local_train_perc} --min_samples ${min_n} -v ${boreal_vect_fn} --predict_var ${predict_var} --max_samples ${max_n} --pred_vars \"${pred_vars}\" -y ${year}"
+# required arguments
+args=(--atl08_path "${MERGED_ATL08_CSV}")
+args+=(--broad_path "${6}")
+args+=(--topo_path "${2}")
+args+=(--hls_path "${3}")
+args+=(--lc_path "${4}")
+args+=(--boreal_vector_path "${18}")
+args+=(--year "${24}")
 
-echo $cmd
-eval $cmd
+# optional arguments
+[[ -n "${23}" ]] && args+=(--sar_path "${23}")
+[[ -n "${5}" ]] && args+=(--mask "${5}")
+[[ -n "${10}" ]] && args+=(--uncertainty_iterations "${10}")
+[[ -n "${11}" ]] && args+=(--calculate_uncertainty "${11}")
+[[ -n "${12}" ]] && args+=(--minDOY "${12}")
+[[ -n "${13}" ]] && args+=(--maxDOY "${13}")
+[[ -n "${14}" ]] && args+=(--max_sol_el "${14}")
+[[ -n "${15}" ]] && args+=(--expand_training "${15}")
+[[ -n "${16}" ]] && args+=(--local_train_perc "${16}")
+[[ -n "${17}" ]] && args+=(--min_samples "${17}")
+[[ -n "${20}" ]] && args+=(--max_samples "${20}")
+[[ -n "${19}" ]] && args+=(--predict_var "${19}")
+[[ -n "${21}" ]] && args+=(--pred_vars "${21}")
+
+mapBoreal_R="Rscript ${basedir}/../../lib/mapBoreal_simple.R"
+command=("${mapBoreal_R}" "${args[@]}")
+echo "${command}"
+"${command[@]}"

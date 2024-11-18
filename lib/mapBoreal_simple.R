@@ -584,6 +584,7 @@ resample_reproject_and_mask <- function(topo_path, hls_path, lc_path, pred_vars,
   lc <- prepare_raster(lc_path, dest_raster=hls)
 
   if (!is.null(sar_path)) {
+    sar_path <- sub("^s3://", "/vsis3/", sar_path)
     sar <- prepare_raster(sar_path, subset_bands=pred_vars, dest_raster=hls)
     stack <- c(hls, sar, topo, lc)
   }
@@ -620,6 +621,22 @@ mask_input_stack <- function(stack){
   return(stack)
 }
 
+parse_pred_vars <- function(pred_vars, remove_sar){
+  pred_vars <- unlist(strsplit(pred_vars, split = " "))
+
+  if(remove_sar){
+    print('Removing default SAR variables from pred_vars')
+    sar_vars <- list(
+      "vv_median_frozen", "vh_median_frozen",
+      "vv_median_summer", "vh_median_summer",
+      "vv_median_shoulder", "vh_median_shoulder"
+    )
+    pred_vars <- pred_vars[!pred_vars %in% sar_vars]
+  }
+
+  return(pred_vars)
+}
+
 mapBoreal<-function(atl08_path, broad_path, hls_path, topo_path, lc_path, boreal_vector_path, year,
                     sar_path=NULL, mask=TRUE, max_sol_el=0, offset=100, minDOY=1, maxDOY=365,
                     expand_training=TRUE, calculate_uncertainty=TRUE, uncertainty_iterations=30,
@@ -629,7 +646,7 @@ mapBoreal<-function(atl08_path, broad_path, hls_path, topo_path, lc_path, boreal
   tile_num = tail(unlist(strsplit(path_ext_remove(atl08_path), "_")), n=1)
   cat("Modelling and mapping boreal AGB tile: ", tile_num, "\n")
 
-  pred_vars <- unlist(strsplit(pred_vars, split = " "))
+  pred_vars <- parse_pred_vars(pred_vars, remove_sar=is.null(sar_path))
   print(pred_vars)
 
   stack <- resample_reproject_and_mask(topo_path, hls_path, lc_path, pred_vars, mask, sar_path)
