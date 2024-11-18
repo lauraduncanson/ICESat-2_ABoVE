@@ -84,5 +84,5 @@ args+=(--year "${24}")
 
 mapBoreal_R="Rscript ${libdir}/mapBoreal_simple.R"
 command=("${mapBoreal_R}" "${args[@]}")
-echo "${command}"
-"${command[@]}"
+echo "${command[@]}"
+eval "${command[@]}"
