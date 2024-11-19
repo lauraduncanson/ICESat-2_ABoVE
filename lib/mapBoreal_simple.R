@@ -306,7 +306,7 @@ write_single_model_summary <- function(model, df, target, out_fns){
   cat('rmse_local: ', rmse_local, '\n')
 
   imp_vars <- model$importance
-  out_accuracy <- list(rsq_local, rmse_local, imp_vars)
+  out_accuracy <- list(RSQ=rsq_local, RMSE=rmse_local, importance=imp_vars)
   saveRDS(out_accuracy, file=out_fns['stats'])
 }
 
@@ -603,7 +603,7 @@ resample_reproject_and_mask <- function(topo_path, hls_path, lc_path, pred_vars,
 
 mask_input_stack <- function(stack){
   MASK_LYR_NAMES = c('slopemask', 'ValidMask')
-  MASK_LANDCOVER_NAMES = c(50, 60, 70, 80, 100)
+  MASK_LANDCOVER_NAMES = c(50, 60, 70, 80)
 
   print("Masking stack...")
   # Bricking the stack will make the masking faster (i think)
