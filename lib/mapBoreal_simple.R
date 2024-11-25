@@ -186,7 +186,7 @@ expand_training_around_season <- function(tile_data, minDOY, maxDOY,
                                           max_sol_el, min_icesat2_samples){
   filter <- DOY_and_solar_filter(tile_data, minDOY, maxDOY, max_sol_el)
   if(length(filter) >= min_icesat2_samples){
-    cat('Found nough data with max_solar_elevation:', max_solar_elevation, '\n')
+    cat('Found nough data with max_solar_elevation:', max_sol_el, '\n')
     return(tile_data[filter,])
   }
   # next try expanding 1 month later in growing season, iteratively, up to 3 months
@@ -486,7 +486,7 @@ run_modeling_pipeline <-function(rds_models, all_train_data, boreal_poly,
   cat('tile_summary:', summary$tile_summary, ' boreal summary:', summary$boreal_summary, '\n')
 
   t2 <- Sys.time()
-  cat('pipeline runtime:', t2 - t1, ' (s)\n')
+  cat('pipeline runtime:', difftime(t2, t1, units="mins"), ' (m)\n')
 
   return(list(
     train_df=train_df, model=model, map=map,
