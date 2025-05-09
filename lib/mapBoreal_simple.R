@@ -311,15 +311,14 @@ write_single_model_summary <- function(model, df, target, out_fns){
 }
 
 write_output_raster_map <- function(maps, output_fn){
-  maps <- subst(maps, -9999, NA)
-  if (nlyr(maps) > 1){
-    out_sd <- app(maps, sd)
-    out_sd <- subst(out_sd, -9999, NA)
-    maps <- c(subset(maps, 1), out_sd)
+  for (i in 1:nlyr(maps)) {
+    NAflag(maps[[i]]) <- -9999
   }
-  NAflag(maps)
+  if (nlyr(maps) > 1) {
+    maps <- c(app(maps, mean), app(maps, sd))
+  }
   options <- c("COMPRESS=LZW", overwrite=TRUE, gdal=c("COMPRESS=LZW", "OVERVIEW_RESAMPLING=AVERAGE"))
-  writeRaster(maps, filename=output_fn, filetype="COG", gdal=options)
+  writeRaster(maps, filename=output_fn, filetype="COG", gdal=options, NAflag = -9999)
 }
 
 write_output_summaries <-function(tile_summaries, boreal_summaries, target, output_fn){
