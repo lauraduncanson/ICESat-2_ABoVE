@@ -515,7 +515,7 @@ adjust_sd_thresh <- function(n_models, default_sd_thresh=0.05){
   return(default_sd_thresh)
 }
 
-run_uncertainty_calculation <- function(fixed_modeling_pipeline_params, uncertainty_iterations, results){
+run_uncertainty_calculation <- function(fixed_modeling_pipeline_params, max_iters, min_iters, results){
   sd_thresh <- 0.05
   last_n <- 9 # kind of arbitrary
   # sd_diff can be initialized to anything bigger than sd_thresh
@@ -531,7 +531,7 @@ run_uncertainty_calculation <- function(fixed_modeling_pipeline_params, uncertai
     list(max_samples=1000, randomize=TRUE, model_config=list(ntree=250))
   )
 
-  while(sd_diff > sd_thresh && this_iter < uncertainty_iterations){
+  while(((sd_diff > sd_thresh) && (this_iter < max_iters)) || (this_iter < min_iters)){
     cat('Uncertainty loop, iteration:', this_iter, '\n')
     results <- do.call(run_modeling_pipeline, params)
 
@@ -638,7 +638,7 @@ parse_pred_vars <- function(pred_vars, remove_sar){
 
 mapBoreal<-function(atl08_path, broad_path, hls_path, topo_path, lc_path, boreal_vector_path, year,
                     sar_path=NULL, mask=TRUE, max_sol_el=0, offset=100, minDOY=1, maxDOY=365,
-                    expand_training=TRUE, calculate_uncertainty=TRUE, uncertainty_iterations=30,
+                    expand_training=TRUE, calculate_uncertainty=TRUE, max_iters=30, min_iters=0,
                     local_train_perc=100, min_samples=5000, max_samples=10000,
                     predict_var='AGB', pred_vars=c('elevation', 'slope', 'NDVI')){
 
@@ -674,7 +674,7 @@ mapBoreal<-function(atl08_path, broad_path, hls_path, topo_path, lc_path, boreal
   write_single_model_summary(results[['model']], results[['train_df']],  predict_var, output_fns)
 
   if (calculate_uncertainty) {
-    results <- run_uncertainty_calculation(fixed_modeling_pipeline_params, uncertainty_iterations, results)
+    results <- run_uncertainty_calculation(fixed_modeling_pipeline_params, max_iters, min_iters, results)
   }
   print('AGB successfully predicted!')
   write_output_summaries(results[['tile_summary']], results[['boreal_summary']], predict_var,  output_fns[['summary']])
@@ -747,8 +747,12 @@ option_list <- list(
     help = "Whether to calculate uncertainty [default: %default]"
   ),
   make_option(
-    c("-i", "--uncertainty_iterations"), type = "integer", default = 30,
-    help = "Number of uncertainty iterations [default: %default]"
+    c("--max_iters"), type = "integer", default = 30,
+    help = "Max number of uncertainty iterations [default: %default]"
+  ),
+  make_option(
+    c("--min_iters"), type = "integer", default = 0,
+    help = "Min number of uncertainty iterations [default: %default]"
   ),
   make_option(
     c("-p", "--local_train_perc"), type = "integer", default = 100,
