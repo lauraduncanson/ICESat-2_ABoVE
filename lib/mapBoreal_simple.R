@@ -310,15 +310,32 @@ write_single_model_summary <- function(model, df, target, out_fns){
   saveRDS(out_accuracy, file=out_fns['stats'])
 }
 
-write_output_raster_map <- function(maps, output_fn){
-  for (i in 1:nlyr(maps)) {
-    NAflag(maps[[i]]) <- -9999
+write_output_raster_map <- function(maps, std = NULL, output_fn) {
+  # Set NA flag for primary maps
+  if (is.list(maps) || nlyr(maps) > 0) {
+    for (i in 1:nlyr(maps)) {
+      NAflag(maps[[i]]) <- -9999
+    }
+  } else {
+    NAflag(maps) <- -9999
   }
-  if (nlyr(maps) > 1) {
-    maps <- c(app(maps, mean), app(maps, sd))
+
+  if (!is.null(std)) {
+    # Uncertainty case: combine mean and std
+    NAflag(std) <- -9999
+    output_maps <- c(maps, std)
+  } else if (nlyr(maps) > 1) {
+    # Multiple layers case: calculate mean and sd
+    output_maps <- c(app(maps, mean), app(maps, sd))
+  } else {
+    # Single layer case
+    output_maps <- maps
   }
-  options <- c("COMPRESS=LZW", overwrite=TRUE, gdal=c("COMPRESS=LZW", "OVERVIEW_RESAMPLING=AVERAGE"))
-  writeRaster(maps, filename=output_fn, filetype="COG", gdal=options, NAflag = -9999)
+
+  raster_options <- c("COMPRESS=LZW", overwrite = TRUE,
+                      gdal = c("COMPRESS=LZW", "OVERVIEW_RESAMPLING=AVERAGE"))
+  writeRaster(output_maps, filename = output_fn, filetype = "COG",
+              gdal = raster_options, NAflag = -9999)
 }
 
 write_output_summaries <-function(tile_summaries, boreal_summaries, target, output_fn){
@@ -515,6 +532,15 @@ adjust_sd_thresh <- function(n_models, default_sd_thresh=0.05){
   return(default_sd_thresh)
 }
 
+welford_update <- function(count, mu, M2, new_value){
+    count <- count + 1
+    delta = new_value - mu
+    mu <- mu + delta / count
+    delta2 = new_value - mu
+    M2 <- M2 + delta * delta2
+    return (list(count=count, mu=mu, M2=M2))
+}
+
 run_uncertainty_calculation <- function(fixed_modeling_pipeline_params, max_iters, min_iters, results){
   sd_thresh <- 0.05
   last_n <- 9 # kind of arbitrary
@@ -522,7 +548,7 @@ run_uncertainty_calculation <- function(fixed_modeling_pipeline_params, max_iter
   sd_diff <- sd_thresh + 1
   this_iter <- 1
 
-  map <- c(results[['map']])
+  mu <- c(results[['map']])
   tile_summary <- c(results[['tile_summary']])
   boreal_summary <- c(results[['boreal_summary']])
 
@@ -531,11 +557,14 @@ run_uncertainty_calculation <- function(fixed_modeling_pipeline_params, max_iter
     list(max_samples=1000, randomize=TRUE, model_config=list(ntree=250))
   )
 
+  # initializing to 0, with crs of mu
+  M2 <- mu
+  values(M2) <- 0.0
+
   while(((sd_diff > sd_thresh) && (this_iter < max_iters)) || (this_iter < min_iters)){
     cat('Uncertainty loop, iteration:', this_iter, '\n')
     results <- do.call(run_modeling_pipeline, params)
-
-    map <- c(map, results[['map']])
+    res <- welford_update(this_iter, mu, M2, results[['map']])
     tile_summary <- c(tile_summary, results[['tile_summary']])
     boreal_summary <- c(boreal_summary, results[['boreal_summary']])
 
@@ -546,9 +575,12 @@ run_uncertainty_calculation <- function(fixed_modeling_pipeline_params, max_iter
 
     sd_thresh <- adjust_sd_thresh(this_iter)
     this_iter <- this_iter + 1
+    mu <- res[['mu']]
+    M2 <- res[['M2']]
   }
 
-  return(list(map=map, tile_summary=tile_summary, boreal_summary=boreal_summary))
+  return(list(map=mu, std=sqrt(M2/(this_iter - 1)), n_iters=this_iter,
+              tile_summary=tile_summary, boreal_summary=boreal_summary))
 }
 
 resample_if_needed <- function(src, des){
@@ -678,7 +710,13 @@ mapBoreal<-function(atl08_path, broad_path, hls_path, topo_path, lc_path, boreal
   }
   print('AGB successfully predicted!')
   write_output_summaries(results[['tile_summary']], results[['boreal_summary']], predict_var,  output_fns[['summary']])
-  write_output_raster_map(results[['map']], output_fns[['map']])
+
+  if (calculate_uncertainty) {
+    write_output_raster_map(results[['map']], results[['std']], output_fns[['map']])
+  } else {
+    write_output_raster_map(results[['map']], output_fn = output_fns[['map']])
+  }
+
 }
 
 option_list <- list(
