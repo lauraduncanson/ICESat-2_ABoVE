@@ -450,15 +450,24 @@ get_rds_models <- function(){
   return(rds_models)
 }
 
-predict_stack <- function(model, stack){
-  stack <- na.omit(stack)
-  map <- predict(stack, model, na.rm=TRUE)
-  # set slope and valid mask to zero
-  # TODO maybe mask can skip over these pixels by default?
-  map <- mask(map, stack$slopemask, maskvalues=0, updatevalue=0)
-  map <- mask(map, stack$ValidMask, maskvalues=0, updatevalue=0)
-
-  return(map)
+create_predict_function <- function(cores = 4, cpkgs = 'randomForest') {
+  if (cores > 1) {
+    function(model, stack) {
+      stack <- na.omit(stack)
+      map <- terra::predict(stack, model, na.rm = TRUE, cores = cores, cpkgs = cpkgs)
+      map <- mask(map, stack$slopemask, maskvalues = 0, updatevalue = 0)
+      map <- mask(map, stack$ValidMask, maskvalues = 0, updatevalue = 0)
+      return(map)
+    }
+  } else {
+    function(model, stack) {
+      stack <- na.omit(stack)
+      map <- predict(stack, model, na.rm = TRUE)
+      map <- mask(map, stack$slopemask, maskvalues = 0, updatevalue = 0)
+      map <- mask(map, stack$ValidMask, maskvalues = 0, updatevalue = 0)
+      return(map)
+    }
+  }
 }
 
 tile_and_boreal_summary <- function(map, predict_var, boreal_poly, summary_and_convert_functions){
@@ -485,7 +494,7 @@ fit_model <- function(model, model_config, train_df, pred_vars, predict_var){
 
 run_modeling_pipeline <-function(rds_models, all_train_data, boreal_poly,
                                  model, model_config, randomize,
-                                 summary_and_convert_functions,
+                                 summary_and_convert_functions, predict_function,
                                  max_samples, sample, pred_vars, predict_var, stack){
   t1 <- Sys.time()
   print('creating AGB traing data frame.')
@@ -495,7 +504,7 @@ run_modeling_pipeline <-function(rds_models, all_train_data, boreal_poly,
   model <- fit_model(model, model_config, train_df, pred_vars, predict_var)
 
   print('predicting biomass map')
-  map <- predict_stack(model, stack)
+  map <- predict_function(model, stack)
 
   print('calculating tile and boreal summaries')
   summary <- tile_and_boreal_summary(map, predict_var, boreal_poly, summary_and_convert_functions)
@@ -671,7 +680,7 @@ parse_pred_vars <- function(pred_vars, remove_sar){
 mapBoreal<-function(atl08_path, broad_path, hls_path, topo_path, lc_path, boreal_vector_path, year,
                     sar_path=NULL, mask=TRUE, max_sol_el=0, offset=100, minDOY=1, maxDOY=365,
                     expand_training=TRUE, calculate_uncertainty=TRUE, max_iters=30, min_iters=0,
-                    local_train_perc=100, min_samples=5000, max_samples=10000,
+                    local_train_perc=100, min_samples=5000, max_samples=10000, cores=1,
                     predict_var='AGB', pred_vars=c('elevation', 'slope', 'NDVI')){
 
   tile_num = tail(unlist(strsplit(path_ext_remove(atl08_path), "_")), n=1)
@@ -692,7 +701,8 @@ mapBoreal<-function(atl08_path, broad_path, hls_path, topo_path, lc_path, boreal
     rds_models=get_rds_models(), all_train_data=all_train_data, boreal_poly=boreal_poly,
     pred_vars=pred_vars, predict_var=predict_var, stack=stack,
     summary_and_convert_functions=get_summary_and_convert_functions(predict_var),
-    model=randomForest, sample=TRUE
+    model=randomForest, sample=TRUE,
+    predict_function=create_predict_function(cores=cores)
   )
 
   results <- do.call(run_modeling_pipeline, modifyList(
@@ -791,6 +801,10 @@ option_list <- list(
   make_option(
     c("--min_iters"), type = "integer", default = 0,
     help = "Min number of uncertainty iterations [default: %default]"
+  ),
+  make_option(
+    c("-c", "--cores"), type = "integer", default = 1,
+    help = "Number of cores used for parallel prediction steps [default: %default]"
   ),
   make_option(
     c("-p", "--local_train_perc"), type = "integer", default = 100,
