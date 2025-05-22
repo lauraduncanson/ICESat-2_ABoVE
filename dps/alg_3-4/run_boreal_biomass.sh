@@ -70,7 +70,7 @@ args+=(--year "${24}")
 # optional arguments
 [[ -n "${23}" ]] && args+=(--sar_path "${23}")
 [[ -n "${5}" ]] && args+=(--mask "${5}")
-[[ -n "${10}" ]] && args+=(--uncertainty_iterations "${10}")
+[[ -n "${10}" ]] && args+=(--max_iters "${10}")
 [[ -n "${11}" ]] && args+=(--calculate_uncertainty "${11}")
 [[ -n "${12}" ]] && args+=(--minDOY "${12}")
 [[ -n "${13}" ]] && args+=(--maxDOY "${13}")
@@ -81,6 +81,8 @@ args+=(--year "${24}")
 [[ -n "${20}" ]] && args+=(--max_samples "${20}")
 [[ -n "${19}" ]] && args+=(--predict_var "${19}")
 [[ -n "${21}" ]] && args+=(--pred_vars "${21}")
+[[ -n "${22}" ]] && args+=(--min_iters "${22}")
+[[ -n "${23}" ]] && args+=(--cores "${23}")
 
 command=(Rscript "${libdir}/mapBoreal_simple.R" "${args[@]}")
 echo "${command[@]}"
