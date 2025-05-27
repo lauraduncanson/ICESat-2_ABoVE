@@ -81,9 +81,9 @@ args+=(--year "${24}")
 [[ -n "${20}" ]] && args+=(--max_samples "${20}")
 [[ -n "${19}" ]] && args+=(--predict_var "${19}")
 [[ -n "${21}" ]] && args+=(--pred_vars "${21}")
-[[ -n "${22}" ]] && args+=(--min_iters "${22}")
-[[ -n "${25}" ]] && args+=(--cores "${25}")
-[[ -n "${26}" ]] && args+=(--ntree "${26}")
+[[ -n "${25}" ]] && args+=(--min_iters "${25}")
+[[ -n "${26}" ]] && args+=(--cores "${26}")
+[[ -n "${27}" ]] && args+=(--ntree "${27}")
 
 command=(Rscript "${libdir}/mapBoreal_simple.R" "${args[@]}")
 echo "${command[@]}"
