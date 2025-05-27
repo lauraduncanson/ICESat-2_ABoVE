@@ -266,6 +266,13 @@ remove_height_outliers <- function(all_train_data){
   )
 }
 
+set_moss_lichen_height_to_zero <- function(df){
+  height_columns <- c(names(df)[grep('^rh[0-9]{2}$', names(df))],
+                      "h_canopy","h_min_canopy", "h_max_canopy", "h_mean_canopy")
+  df[df$segment_landcover == 100, height_columns] <- 0.0
+  return(df)
+}
+
 set_output_file_names <- function(predict_var, tile_num, year){
   key <- if (predict_var == 'AGB') 'agb' else 'ht'
   out_fn_stem = paste(
@@ -416,6 +423,9 @@ prepare_training_data <- function(ice2_30_atl08_path, ice2_30_sample_path,
   tile_data <- augment_training_data_with_broad_data(
     tile_data, ice2_30_sample_path, local_train_perc, min_icesat2_samples
   )
+
+  tile_data <- set_moss_lichen_height_to_zero(tile_data)
+
   needed_cols <- union(
     c('lat', 'lon', 'segment_landcover', 'h_canopy', 'rh25', 'rh50', 'rh60',
       'rh70', 'rh75', 'rh80', 'rh85', 'rh90', 'rh95'),
