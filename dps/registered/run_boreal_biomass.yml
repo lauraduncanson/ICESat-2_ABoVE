@@ -137,14 +137,17 @@ inputs:
     name: year
     required: true
   - default: ''
-    description: 'min number of bootstrap runs for uncertainty calculation'
+    description: min number of bootstrap runs for uncertainty calculation
     name: min_iters
     required: true
   - default: ''
-    description: 'Number of cores used for parallel Random Forest Prediction"
+    description: Number of cores used for parallel Random Forest Prediction
     name: cores
     required: true
-
+  - default: ''
+    description: Number of trees of the Random Forest model(s)
+    name: ntree
+    required: true
 
 queue: maap-dps-worker-32gb
 repository_url: https://github.com/aliz237/icesat2_boreal.git

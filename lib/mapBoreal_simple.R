@@ -563,7 +563,7 @@ run_uncertainty_calculation <- function(fixed_modeling_pipeline_params, max_iter
 
   params <- modifyList(
     fixed_modeling_pipeline_params,
-    list(max_samples=1000, randomize=TRUE, model_config=list(ntree=250))
+    list(max_samples=1000, randomize=TRUE)
   )
 
   # initializing to 0, with crs of mu
@@ -680,7 +680,7 @@ parse_pred_vars <- function(pred_vars, remove_sar){
 mapBoreal<-function(atl08_path, broad_path, hls_path, topo_path, lc_path, boreal_vector_path, year,
                     sar_path=NULL, mask=TRUE, max_sol_el=0, offset=100, minDOY=1, maxDOY=365,
                     expand_training=TRUE, calculate_uncertainty=TRUE, max_iters=30, min_iters=0,
-                    local_train_perc=100, min_samples=5000, max_samples=10000, cores=1,
+                    local_train_perc=100, min_samples=5000, max_samples=10000, cores=1, ntree=100,
                     predict_var='AGB', pred_vars=c('elevation', 'slope', 'NDVI')){
 
   tile_num = tail(unlist(strsplit(path_ext_remove(atl08_path), "_")), n=1)
@@ -701,13 +701,13 @@ mapBoreal<-function(atl08_path, broad_path, hls_path, topo_path, lc_path, boreal
     rds_models=get_rds_models(), all_train_data=all_train_data, boreal_poly=boreal_poly,
     pred_vars=pred_vars, predict_var=predict_var, stack=stack,
     summary_and_convert_functions=get_summary_and_convert_functions(predict_var),
-    model=randomForest, sample=TRUE,
+    model=randomForest, model_config=list(ntree=ntree), sample=TRUE,
     predict_function=create_predict_function(cores=cores)
   )
 
   results <- do.call(run_modeling_pipeline, modifyList(
     fixed_modeling_pipeline_params,
-    list(max_samples=max_samples, randomize=FALSE, model_config=list(ntree=500, mtry=6))
+    list(max_samples=max_samples, randomize=FALSE)
   ))
 
   output_fns <- set_output_file_names(predict_var, tile_num, year)
@@ -805,6 +805,10 @@ option_list <- list(
   make_option(
     c("-c", "--cores"), type = "integer", default = 1,
     help = "Number of cores used for parallel prediction steps [default: %default]"
+  ),
+ make_option(
+    c ("--ntree"), type = "integer", default = 100,
+    help = "Number of random forest trees [default: %default]"
   ),
   make_option(
     c("-p", "--local_train_perc"), type = "integer", default = 100,

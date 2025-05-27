@@ -82,7 +82,8 @@ args+=(--year "${24}")
 [[ -n "${19}" ]] && args+=(--predict_var "${19}")
 [[ -n "${21}" ]] && args+=(--pred_vars "${21}")
 [[ -n "${22}" ]] && args+=(--min_iters "${22}")
-[[ -n "${23}" ]] && args+=(--cores "${23}")
+[[ -n "${25}" ]] && args+=(--cores "${25}")
+[[ -n "${26}" ]] && args+=(--ntree "${26}")
 
 command=(Rscript "${libdir}/mapBoreal_simple.R" "${args[@]}")
 echo "${command[@]}"
