@@ -267,17 +267,17 @@ remove_height_outliers <- function(all_train_data){
   )
 }
 
-set_short_veg_height_to_zero <- function(df){
+set_short_veg_height_to_zero <- function(df, slope_thresh){
   height_columns <- c(names(df)[grep('^rh[0-9]{2}$', names(df))],
                       "h_canopy","h_min_canopy", "h_max_canopy", "h_mean_canopy")
-  cond <- (df$segment_landcover %in% c(20, 30, 60, 100)) & (df$slope > 25)
+  cond <- (df$segment_landcover %in% c(20, 30, 60, 100)) & (df$slope > slope_thresh)
   cond[is.na(cond)] <- FALSE
   df[cond, height_columns] <- 0.0
   return(df)
 }
 
-short_veg_filter <- function(df){
-  cond <- (df$segment_landcover %in% c(20, 30, 60, 100)) & (df$slope > 25)
+short_veg_filter <- function(df, slope_thresh){
+  cond <- (df$segment_landcover %in% c(20, 30, 60, 100)) & (df$slope > slope_thresh)
   cond[is.na(cond)] <- FALSE
   df <- df[!cond, ,drop=FALSE]
   return(df)
@@ -423,7 +423,7 @@ reformat_training_data_for_AGB_modeling <- function(tile_data, offset){
 prepare_training_data <- function(ice2_30_atl08_path, ice2_30_sample_path,
                                   expand_training, minDOY, maxDOY, max_sol_el,
                                   min_icesat2_samples, local_train_perc, offset, stack_vars,
-                                  remove_short_veg, zero_short_veg_height){
+                                  remove_short_veg, zero_short_veg_height, slope_thresh){
   print('preparing training data ...')
 
   tile_data <- read_and_filter_training_data(
@@ -436,10 +436,10 @@ prepare_training_data <- function(ice2_30_atl08_path, ice2_30_sample_path,
   )
 
   if (remove_short_veg)
-    tile_data <- short_veg_filter(tile_data)
+    tile_data <- short_veg_filter(tile_data, slope_thresh)
 
   if (zero_short_veg_height)
-    tile_data <- set_short_veg_height_to_zero(tile_data)
+    tile_data <- set_short_veg_height_to_zero(tile_data, slope_thresh)
 
   needed_cols <- union(
     c('lat', 'lon', 'segment_landcover', 'h_canopy', 'rh25', 'rh50', 'rh60',
@@ -738,7 +738,7 @@ mapBoreal<-function(atl08_path, broad_path, hls_path, topo_path, lc_path, boreal
                     expand_training=TRUE, calculate_uncertainty=TRUE, max_iters=30, min_iters=0,
                     local_train_perc=100, min_samples=5000, max_samples=10000, cores=1, ntree=100,
                     predict_var='AGB', pred_vars=c('elevation', 'slope', 'NDVI'),
-                    remove_short_veg=FALSE, zero_short_veg_height=FALSE){
+                    remove_short_veg=FALSE, zero_short_veg_height=FALSE, slope_thresh=25){
 
   tile_num = tail(unlist(strsplit(path_ext_remove(atl08_path), "_")), n=1)
   cat("Modelling and mapping boreal AGB tile: ", tile_num, "\n")
@@ -752,7 +752,7 @@ mapBoreal<-function(atl08_path, broad_path, hls_path, topo_path, lc_path, boreal
   all_train_data <- prepare_training_data(
     atl08_path, broad_path, expand_training, minDOY,
     maxDOY, max_sol_el, min_samples, local_train_perc, offset, names(stack),
-    remove_short_veg, zero_short_veg_height
+    remove_short_veg, zero_short_veg_height, slope_thresh
   )
 
   if (cores > 1) {
@@ -884,6 +884,10 @@ option_list <- list(
  make_option(
     c ("--zero_short_veg_height"), type = "logical", default = FALSE,
     help = "Sets the RH metrics of shrubs, herbaceous, moss/lichen and bare/spare veg classes from training dataset to zero [default: %default]"
+  ),
+ make_option(
+    c ("--slope_thresh"), type = "numeric", default = 25,
+    help = "slope threshold beyond which short veg height is set to zero [default: %default]"
   ),
  make_option(
     c("-p", "--local_train_perc"), type = "integer", default = 100,
