@@ -84,6 +84,8 @@ args+=(--year "${24}")
 [[ -n "${25}" ]] && args+=(--min_iters "${25}")
 [[ -n "${26}" ]] && args+=(--cores "${26}")
 [[ -n "${27}" ]] && args+=(--ntree "${27}")
+[[ -n "${28}" ]] && args+=(--zero_short_veg_height "${28}")
+[[ -n "${29}" ]] && args+=(--remove_short_veg "${29}")
 
 command=(Rscript "${libdir}/mapBoreal_simple.R" "${args[@]}")
 echo "${command[@]}"

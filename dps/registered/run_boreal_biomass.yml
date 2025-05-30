@@ -1,6 +1,6 @@
 algorithm_description: Map aboveground biomass final output
 algorithm_name: run_boreal_biomass_map
-algorithm_version: dev_v1.7
+algorithm_version: dev_v1.9
 build_command: icesat2_boreal/dps/build_command_agb.sh
 disk_space: 80GB
 docker_container_url: mas.maap-project.org/root/maap-workspaces/base_images/r:v4.1.0
@@ -147,6 +147,14 @@ inputs:
   - default: ''
     description: Number of trees of the Random Forest model(s)
     name: ntree
+    required: true
+  - default: ''
+    description: set atl08 RH columns of shrubs, moss, lichen, bare and sparse veg on steep slope to zero
+    name: zero_short_veg_height
+    required: true
+  - default: ''
+    description: remove shrubs, moss, lichen, bare and sparse veg on steep slopes from atl08 traing data
+    name: remove_short_veg
     required: true
 
 queue: maap-dps-worker-32gb
