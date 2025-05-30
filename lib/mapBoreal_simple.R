@@ -32,6 +32,7 @@ library(fs)
 library(stringr)
 library(rockchalk)
 library(terra)
+library(parallel)
 
 get_height_column_names <- function(in_data){
   return(
@@ -460,23 +461,54 @@ get_rds_models <- function(){
   return(rds_models)
 }
 
-create_predict_function <- function(cores = 4, cpkgs = 'randomForest') {
-  if (cores > 1) {
-    function(model, stack) {
-      stack <- na.omit(stack)
-      map <- terra::predict(stack, model, na.rm = TRUE, cores = cores, cpkgs = cpkgs)
-      map <- mask(map, stack$slopemask, maskvalues = 0, updatevalue = 0)
-      map <- mask(map, stack$ValidMask, maskvalues = 0, updatevalue = 0)
-      return(map)
-    }
-  } else {
-    function(model, stack) {
+create_predict_function <- function(cores){
+  if (cores == 1) {
+    predict_stack <- function(model, stack) {
       stack <- na.omit(stack)
       map <- predict(stack, model, na.rm = TRUE)
       map <- mask(map, stack$slopemask, maskvalues = 0, updatevalue = 0)
       map <- mask(map, stack$ValidMask, maskvalues = 0, updatevalue = 0)
       return(map)
     }
+  }
+  else {
+      predict_stack_manual_chunks <- function(model, stack_path) {
+        n_chunks <- cores
+        stack <- rast(stack_path)
+        chunk_size <- ceiling(nrow(stack) / n_chunks)
+        chunks <- vector("list", n_chunks)
+
+        for (i in seq_len(n_chunks)) {
+          row_start <- (i - 1) * chunk_size + 1
+          row_end   <- min(i * chunk_size, nrow(stack))
+          chunks[[i]] <- list(id = i, row_start = row_start, row_end = row_end)
+        }
+
+        process_chunk <- function(ch) {
+          stack <- rast(stack_path)
+          n_rows <- ch$row_end - ch$row_start + 1
+          vals <- terra::values(stack, row = ch$row_start, nrows = n_rows)
+          valid <- complete.cases(vals)
+          preds <- rep(NA_real_, nrow(vals))
+          preds[valid] <- predict(model, vals[valid, , drop = FALSE])
+          list(preds = preds, row_start = ch$row_start, row_end = ch$row_end)
+        }
+
+        message("Running on cluster with ", n_chunks, " workers")
+        results <- parallel::mclapply(chunks, process_chunk,
+                                      mc.cores = n_chunks, mc.preschedule = FALSE)
+        # Reassemble
+        all_preds <- numeric(nrow(stack) * ncol(stack))
+        for (res in results) {
+          offset <- (res$row_start - 1) * ncol(stack) + 1
+          all_preds[offset:(offset + length(res$preds) - 1)] <- res$preds
+        }
+
+        rast_pred <- rast(matrix(all_preds, nrow = nrow(stack), ncol = ncol(stack), byrow = TRUE))
+        ext(rast_pred) <- ext(stack)
+        crs(rast_pred) <- crs(stack)
+        rast_pred
+      }
   }
 }
 
@@ -688,7 +720,7 @@ parse_pred_vars <- function(pred_vars, remove_sar){
 }
 
 mapBoreal<-function(atl08_path, broad_path, hls_path, topo_path, lc_path, boreal_vector_path, year,
-                    sar_path=NULL, mask=TRUE, max_sol_el=0, offset=100, minDOY=1, maxDOY=365,
+                    sar_path=NULL, mask=TRUE, max_sol_el=5, offset=100, minDOY=130, maxDOY=250,
                     expand_training=TRUE, calculate_uncertainty=TRUE, max_iters=30, min_iters=0,
                     local_train_perc=100, min_samples=5000, max_samples=10000, cores=1, ntree=100,
                     predict_var='AGB', pred_vars=c('elevation', 'slope', 'NDVI')){
@@ -706,6 +738,15 @@ mapBoreal<-function(atl08_path, broad_path, hls_path, topo_path, lc_path, boreal
     atl08_path, broad_path, expand_training, minDOY,
     maxDOY, max_sol_el, min_samples, local_train_perc, offset, names(stack)
   )
+
+  if (cores > 1) {
+    # saving stack and passing path instead because otherwise when parallel section runs
+    # the memory overhead multiplies by number of nodes
+    stack_path <- './stack.tif'
+    writeRaster(stack, stack_path, overwrite = TRUE)
+    rm(stack); gc()
+    stack <- stack_path
+  }
 
   fixed_modeling_pipeline_params <- list(
     rds_models=get_rds_models(), all_train_data=all_train_data, boreal_poly=boreal_poly,
