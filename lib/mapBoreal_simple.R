@@ -270,7 +270,8 @@ remove_height_outliers <- function(all_train_data){
 set_short_veg_height_to_zero <- function(df, slope_thresh){
   height_columns <- c(names(df)[grep('^rh[0-9]{2}$', names(df))],
                       "h_canopy","h_min_canopy", "h_max_canopy", "h_mean_canopy")
-  cond <- (df$segment_landcover %in% c(20, 30, 60, 100)) & (df$slope > slope_thresh)
+  cond <- df$segment_landcover == 100
+  cond <- cond | ((df$segment_landcover %in% c(20, 30, 60, 100)) & (df$slope > slope_thresh))
   cond[is.na(cond)] <- FALSE
   df[cond, height_columns] <- 0.0
   return(df)
