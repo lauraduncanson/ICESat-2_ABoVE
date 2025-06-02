@@ -504,7 +504,9 @@ create_predict_function <- function(cores){
           vals <- terra::values(stack, row = ch$row_start, nrows = n_rows)
           valid <- complete.cases(vals)
           preds <- rep(NA_real_, nrow(vals))
-          preds[valid] <- predict(model, vals[valid, , drop = FALSE])
+          if (any(valid)){
+             preds[valid] <- predict(model, vals[valid, , drop = FALSE])
+	  }
           list(preds = preds, row_start = ch$row_start, row_end = ch$row_end)
         }
 
@@ -530,12 +532,9 @@ tile_and_boreal_summary <- function(map, predict_var, boreal_poly, summary_and_c
   convert_fun <- summary_and_convert_functions[['convert_fun']]
   summary_fun <- summary_and_convert_functions[['summary_fun']]
 
-  map_conv <- if (is.null(convert_fun)) map else app(map, convert_fun)
-
-  tile_summary <- global(map_conv, summary_fun, na.rm=TRUE)[[summary_fun]]
-
-  boreal <- extract(map_conv, boreal_poly, fun=summary_fun, na.rm=TRUE)
-  boreal_summary <- if(summary_fun=='sum') sum(boreal$lyr.1, na.rm=TRUE) else boreal$lyr1[1]
+  tile_summary <- convert_fun(global(map, summary_fun, na.rm=TRUE)[[summary_fun]])
+  boreal_extract <- extract(map, boreal_poly, fun=summary_fun, na.rm=TRUE)
+  boreal_summary <- convert_fun(sum(boreal_extract$lyr.1, na.rm=TRUE))
 
   return(list(tile_summary=tile_summary, boreal_summary=boreal_summary))
 }
@@ -578,11 +577,12 @@ run_modeling_pipeline <-function(rds_models, all_train_data, boreal_poly,
 get_summary_and_convert_functions <- function(predict_var){
   if (predict_var == 'AGB'){
     summary_fun <- 'sum'
-    convert_fun <- function(x){(x*0.09)/1000000000}
+    convert_fun <- function(x){x * 0.09 * 1e-9}
   }
   else{
     summary_fun <- 'mean'
-    convert_fun <- NULL
+    # no conversion needed for Ht
+    convert_fun <- function(x){x}
   }
   return(list(summary_fun=summary_fun, convert_fun=convert_fun))
 }
