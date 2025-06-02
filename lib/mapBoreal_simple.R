@@ -738,7 +738,7 @@ mapBoreal<-function(atl08_path, broad_path, hls_path, topo_path, lc_path, boreal
                     expand_training=TRUE, calculate_uncertainty=TRUE, max_iters=30, min_iters=0,
                     local_train_perc=100, min_samples=5000, max_samples=10000, cores=1, ntree=100,
                     predict_var='AGB', pred_vars=c('elevation', 'slope', 'NDVI'),
-                    remove_short_veg=FALSE, zero_short_veg_height=FALSE, slope_thresh=25){
+                    remove_short_veg=FALSE, zero_short_veg_height=FALSE, slope_thresh=15){
 
   tile_num = tail(unlist(strsplit(path_ext_remove(atl08_path), "_")), n=1)
   cat("Modelling and mapping boreal AGB tile: ", tile_num, "\n")
@@ -886,7 +886,7 @@ option_list <- list(
     help = "Sets the RH metrics of shrubs, herbaceous, moss/lichen and bare/spare veg classes from training dataset to zero [default: %default]"
   ),
  make_option(
-    c ("--slope_thresh"), type = "numeric", default = 25,
+    c ("--slope_thresh"), type = "numeric", default = 15,
     help = "slope threshold beyond which short veg height is set to zero [default: %default]"
   ),
  make_option(
