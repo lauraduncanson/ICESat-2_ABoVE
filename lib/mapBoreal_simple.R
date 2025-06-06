@@ -535,7 +535,7 @@ tile_and_boreal_summary <- function(map, predict_var, boreal_poly, summary_and_c
   summary_fun <- summary_and_convert_functions[['summary_fun']]
 
   tile_summary <- convert_fun(global(map, summary_fun, na.rm=TRUE)[[summary_fun]])
-  boreal_extract <- extract(map, boreal_poly, fun=summary_fun, na.rm=TRUE)
+  boreal_extract <- extract(map, boreal_poly, fun=summary_fun, na.rm=TRUE, touches=TRUE)
   boreal_summary <- convert_fun(sum(boreal_extract$lyr.1, na.rm=TRUE))
 
   return(list(tile_summary=tile_summary, boreal_summary=boreal_summary))
