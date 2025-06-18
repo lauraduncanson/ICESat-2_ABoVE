@@ -195,13 +195,13 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         '--atl08_year_list',
-        nargs='*',
         default=None,
         help='atl08 training data years to concat'
     )
 
     args = parser.parse_args().__dict__
     if args['atl08_year_list']:
+        args['atl08_year_list'] = args['atl08_year_list'].split()
         run_merge_neighbors_multi_year(args)
     else:
         args.pop('atl08_year_list')
