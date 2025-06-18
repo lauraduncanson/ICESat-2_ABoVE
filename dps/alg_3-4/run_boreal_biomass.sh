@@ -36,6 +36,7 @@ pred_vars=${21}
 bio_models_tar_fn=${22}
 SAR_TIF=${23}
 year=${24}
+atl08_year_list=${31}
 
 source activate icesat2_boreal
 
@@ -44,11 +45,22 @@ tar -xf ${bio_models_tar_fn}
 # This PWD is wherever the job is run (where the .sh is called from) 
 OUTPUTDIR="${PWD}/output"
 
-# Get the output merged CSV of filtered ATL08 for the input tile and its neighbors
-cmd="python ${libdir}/merge_neighbors_atl08.py -in_tile_num ${in_tile_num} -in_tile_fn ${in_tile_fn} -in_tile_field ${in_tile_field} -csv_list_fn ${ATL08_tindex_master_fn} -out_dir ${OUTPUTDIR}"
+# required arguments
+args=(--in_tile_num "${in_tile_num}")
+args+=(--in_tile_fn "${in_tile_fn}")
+args+=(--out_dir "${OUTPUTDIR}")
 
-echo $cmd
-eval $cmd
+# optional arguments
+[[ -n "${in_tile_field}" ]] && args+=(--in_tile_field "${in_tile_field}")
+[[ -n "${ATL08_tindex_master_fn}" ]] && args+=(--csv_list_fn "${ATL08_tindex_master_fn}")
+[[ -n "${atl08_year_list}" ]] && args+=(--atl08_year_list "${atl08_year_list}")
+
+command=(python "${libdir}/merge_neighbors_atl08.py" "${args[@]}")
+echo "${command[@]}"
+"${command[@]}"
+
+echo $command
+eval $command
 
 # Set the output merged CSV name to a var
 MERGED_ATL08_CSV=$(ls ${OUTPUTDIR}/*_merge_neighbors_*.csv | head -1)

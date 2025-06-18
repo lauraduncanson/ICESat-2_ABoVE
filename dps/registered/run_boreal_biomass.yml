@@ -160,6 +160,10 @@ inputs:
     description: slope threshold beyond which short veg height is set to zero
     name: slope_thresh
     required: true
+  - default: ''
+    description: space separated list of year(s) of atl08 training data to merge
+    name: atl08_year_list
+    required: true
 
 queue: maap-dps-worker-32gb
 repository_url: https://github.com/aliz237/icesat2_boreal.git
