@@ -291,8 +291,8 @@ set_output_file_names <- function(predict_var, tile_num, year){
     sep="_"
   )
 
-  fn_suffix <- c('.tif', '_summary.csv', '_train_data.csv', '_stats.Rds', '_model.Rds')
-  names <- c('map', 'summary', 'train', 'stats', 'model')
+  fn_suffix <- c('.tif', '_summary.csv', '_train_data.csv', '_single_model_stats.Rds', '_model.Rds', '_model_stats.csv', '_val.csv')
+  names <- c('map', 'summary', 'train', 'single_model_stats', 'model', 'model_stats', 'validation')
 
   output_file_names <- paste0(out_fn_stem, fn_suffix)
   names(output_file_names) <- names
@@ -325,7 +325,7 @@ write_single_model_summary <- function(model, df, target, out_fns){
 
   imp_vars <- model$importance
   out_accuracy <- list(RSQ=rsq_local, RMSE=rmse_local, importance=imp_vars)
-  saveRDS(out_accuracy, file=out_fns['stats'])
+  saveRDS(out_accuracy, file=out_fns['single_model_stats'])
 }
 
 write_output_raster_map <- function(maps, std = NULL, output_fn) {
@@ -424,7 +424,8 @@ reformat_training_data_for_AGB_modeling <- function(tile_data, offset){
 prepare_training_data <- function(ice2_30_atl08_path, ice2_30_sample_path,
                                   expand_training, minDOY, maxDOY, max_sol_el,
                                   min_icesat2_samples, local_train_perc, offset, stack_vars,
-                                  remove_short_veg, zero_short_veg_height, slope_thresh){
+                                  remove_short_veg, zero_short_veg_height, slope_thresh,
+                                  year, val_thresh, val_frac){
   print('preparing training data ...')
 
   tile_data <- read_and_filter_training_data(
@@ -443,7 +444,7 @@ prepare_training_data <- function(ice2_30_atl08_path, ice2_30_sample_path,
     tile_data <- set_short_veg_height_to_zero(tile_data, slope_thresh)
 
   needed_cols <- union(
-    c('lat', 'lon', 'segment_landcover', 'h_canopy', 'rh25', 'rh50', 'rh60',
+    c('y', 'lat', 'lon', 'segment_landcover', 'h_canopy', 'rh25', 'rh50', 'rh60',
       'rh70', 'rh75', 'rh80', 'rh85', 'rh90', 'rh95'),
     stack_vars
   )
@@ -465,7 +466,25 @@ prepare_training_data <- function(ice2_30_atl08_path, ice2_30_sample_path,
     # TODO another option could be to drop SAR columns and continue
     stop('No traing data available, likley due to SAR being all -9999')
   }
+
+  tile_data <- train_test_split_if_enough_data(tile_data, year, val_thresh, val_frac)
+
   return(tile_data)
+}
+
+train_test_split_if_enough_data <- function(df, year, val_thresh, val_frac){
+  df_y <- df[df$y == year,]
+  if (nrow(df_y) > val_thresh && val_frac > 0) {
+    val_sz <- floor(val_frac * nrow(df_y))
+    val_idx <- sample(row.names(df_y), val_sz, replace=FALSE)
+    val_data <- df_y[val_idx,]
+    train_data <- df[!row.names(df) %in% val_idx,]
+  }
+  else {
+    val_data <- NULL
+    train_data <- df
+  }
+  return(list(val_data=val_data, train_data=train_data))
 }
 
 get_rds_models <- function(){
@@ -735,12 +754,62 @@ parse_pred_vars <- function(pred_vars, remove_sar){
   return(pred_vars)
 }
 
+write_model_stats <- function(val_df, out_fn=NULL){
+  val_df <- na.omit(val_df)
+  val_df$res <- val_df$y_true - val_df$y_pred
+  lm_ <- lm(y_true ~ y_pred, data=val_df)
+
+  stats <- data.frame(
+    MAE=mean(abs(val_df$res)),
+    MSE=mean(val_df$res^2),
+    RMSE=sqrt(mean(val_df$res^2)),
+    R2=1-sum(val_df$res^2)/sum((val_df$y_true-mean(val_df$y_true))^2),
+    lm_R2=summary(lm_)$r.squared,
+    lm_RMSE=sqrt(mean((val_df$y_true-predict(lm_))^2))
+  )
+
+  if (!is.null(out_fn)){
+    write.csv(stats, out_fn)
+  }
+  return(stats)
+}
+
+sample_map_at_lidar_points <-function(df, map, rds_models, year, predict_var, out_fn=NULL){
+  df <- df[df$y == as.integer(year), ]
+  df <- GEDI2AT08AGB(rds_models, df, randomize=FALSE, sample=FALSE)
+
+  points_vect <- vect(df, geom = c('lon', 'lat'), crs = 'EPSG:4326')
+
+  if (crs(points_vect) != crs(map)) {
+    points_vect <- project(points_vect, crs(map))
+  }
+
+  # Extract mean Ht or AGB (pred_var) values from first layer
+  extracted_values <- extract(map[[1]], points_vect)
+
+  target <- if (predict_var == 'AGB') 'AGB' else 'h_canopy'
+
+  val_df <- data.frame(
+    lat = df[['lat']],
+    lon = df[['lon']],
+    y_pred = extracted_values[, 2],
+    y_true = df[[target]]
+  )
+
+  if (!is.null(out_fn)){
+    write.csv(val_df, out_fn)
+  }
+
+  return(val_df)
+}
+
 mapBoreal<-function(atl08_path, broad_path, hls_path, topo_path, lc_path, boreal_vector_path, year,
                     sar_path=NULL, mask=TRUE, max_sol_el=5, offset=100, minDOY=130, maxDOY=250,
                     expand_training=TRUE, calculate_uncertainty=TRUE, max_iters=30, min_iters=0,
                     local_train_perc=100, min_samples=5000, max_samples=10000, cores=1, ntree=100,
                     predict_var='AGB', pred_vars=c('elevation', 'slope', 'NDVI'),
-                    remove_short_veg=FALSE, zero_short_veg_height=FALSE, slope_thresh=15){
+                    remove_short_veg=FALSE, zero_short_veg_height=FALSE, slope_thresh=15,
+                    val_thresh=11000, val_frac=0.10){
 
   tile_num = tail(unlist(strsplit(path_ext_remove(atl08_path), "_")), n=1)
   cat("Modelling and mapping boreal AGB tile: ", tile_num, "\n")
@@ -751,10 +820,11 @@ mapBoreal<-function(atl08_path, broad_path, hls_path, topo_path, lc_path, boreal
   stack <- resample_reproject_and_mask(topo_path, hls_path, lc_path, pred_vars, mask, sar_path)
   boreal_poly <- project(vect(boreal_vector_path), crs(stack))
 
-  all_train_data <- prepare_training_data(
+  all_data <- prepare_training_data(
     atl08_path, broad_path, expand_training, minDOY,
     maxDOY, max_sol_el, min_samples, local_train_perc, offset, names(stack),
-    remove_short_veg, zero_short_veg_height, slope_thresh
+    remove_short_veg, zero_short_veg_height, slope_thresh,
+    as.integer(year), val_thresh, val_frac
   )
 
   if (cores > 1) {
@@ -767,7 +837,7 @@ mapBoreal<-function(atl08_path, broad_path, hls_path, topo_path, lc_path, boreal
   }
 
   fixed_modeling_pipeline_params <- list(
-    rds_models=get_rds_models(), all_train_data=all_train_data, boreal_poly=boreal_poly,
+    rds_models=get_rds_models(), all_train_data=all_data[['train_data']], boreal_poly=boreal_poly,
     pred_vars=pred_vars, predict_var=predict_var, stack=stack,
     summary_and_convert_functions=get_summary_and_convert_functions(predict_var),
     model=randomForest, model_config=list(ntree=ntree), sample=TRUE,
@@ -795,7 +865,18 @@ mapBoreal<-function(atl08_path, broad_path, hls_path, topo_path, lc_path, boreal
   } else {
     write_output_raster_map(results[['map']], output_fn = output_fns[['map']])
   }
-
+  if (!is.null(all_data[['val_data']])){
+    val_df <- sample_map_at_lidar_points(
+      all_data[['val_data']],
+      results[['map']],
+      fixed_modeling_pipeline_params[['rds_models']],
+      year,
+      predict_var,
+      output_fns[['validation']]
+    )
+    stats <- write_model_stats(val_df, output_fns[['model_stats']])
+    print(stats)
+  }
 }
 
 option_list <- list(
@@ -891,6 +972,14 @@ option_list <- list(
     c ("--slope_thresh"), type = "numeric", default = 15,
     help = "slope threshold beyond which short veg height is set to zero [default: %default]"
   ),
+ make_option(
+    c ("--val_thresh"), type = "numeric", default = 11000,
+    help = "min number of atl08 samples (after all filtering) needed to validate the model [default: %default]"
+ ),
+ make_option(
+    c ("--val_frac"), type = "numeric", default = 0.10,
+    help = "Fraction of the current year's atl08 samples to use for validation if val_thresh has reached [default: %default]"
+ ),
  make_option(
     c("-p", "--local_train_perc"), type = "integer", default = 100,
     help = "Percent of atl08 data to be used in case it is augmented with broad data [default: %default]"
