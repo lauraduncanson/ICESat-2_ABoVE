@@ -291,8 +291,8 @@ set_output_file_names <- function(predict_var, tile_num, year){
     sep="_"
   )
 
-  fn_suffix <- c('.tif', '_summary.csv', '_train_data.csv', '_single_model_stats.Rds', '_model.Rds', '_model_stats.csv', '_val.csv')
-  names <- c('map', 'summary', 'train', 'single_model_stats', 'model', 'model_stats', 'validation')
+  fn_suffix <- c('.tif', '_summary.csv', '_single_model_stats.csv', '_model_stats.csv', '_val.csv')
+  names <- c('map', 'summary', 'single_model_stats', 'model_stats', 'validation')
 
   output_file_names <- paste0(out_fn_stem, fn_suffix)
   names(output_file_names) <- names
@@ -300,32 +300,18 @@ set_output_file_names <- function(predict_var, tile_num, year){
   return(output_file_names)
 }
 
-write_ATL08_table <- function(target, df, out_file_path){
-    out_columns <- if(target=='AGB') c('lon', 'lat', 'AGB', 'SE') else c('lon', 'lat', 'h_canopy')
-    write.csv(df[, out_columns], file=out_file_path, row.names=FALSE)
-}
+get_single_model_stats <- function(model){
+  rsq <- tail(model$rsq, 1)
 
-write_single_model_summary <- function(model, df, target, out_fns){
-  target <- if(target == 'AGB') df$AGB else df$RH_98
-  local_model <- lm(model$predicted ~ target)
-  saveRDS(model, file=out_fns['model'])
+  mse <- tail(model$mse, 1)
+  rmse <- if(is.null(mse) || is.na(mse)) NA else sqrt(mse)
 
-  rsq <- max(model$rsq, na.rm=T)
-  cat('rsq_model: ', rsq, '\n')
+  summary <- as.data.frame(t(model$importance))
+  summary$OOB_MSE <- mse
+  summary$OOB_RMSE <- rmse
+  summary$OOB_R2 <- rsq
 
-  rsq_local <- summary(local_model)$r.squared
-  cat('rsq_local: ', rsq_local, '\n')
-
-  na_data <- which(is.na(local_model$predicted==TRUE))
-
-  if(length(na_data) == 0)
-    rmse_local <- sqrt(mean(local_model$residuals^2))
-
-  cat('rmse_local: ', rmse_local, '\n')
-
-  imp_vars <- model$importance
-  out_accuracy <- list(RSQ=rsq_local, RMSE=rmse_local, importance=imp_vars)
-  saveRDS(out_accuracy, file=out_fns['single_model_stats'])
+  return(summary)
 }
 
 write_output_raster_map <- function(maps, std = NULL, output_fn) {
@@ -356,16 +342,20 @@ write_output_raster_map <- function(maps, std = NULL, output_fn) {
               gdal = raster_options, NAflag = -9999)
 }
 
-write_output_summaries <-function(tile_summaries, boreal_summaries, target, output_fn){
+write_output_summaries <-function(results, target, output_fns){
   if (target == 'AGB')
     column_names <- c('tile_total', 'boreal_total')
   else
     column_names <- c('tile_mean', 'boreal_mean')
 
-  df <- data.frame(tile_summaries, boreal_summaries)
+  df <- data.frame(results[['tile_summary']], results[['boreal_summary']])
   names(df) <- column_names
 
-  write.csv(df, output_fn, row.names=FALSE)
+  write.csv(df, output_fns[['summary']], row.names=FALSE)
+
+  all_model_stats <- bind_rows(results[['single_model_stats']])
+  row.names(all_model_stats) <- 1:nrow(all_model_stats)
+  write.csv(all_model_stats, output_fns[['single_model_stats']])
 }
 
 read_and_filter_training_data <- function(ice2_30_atl08_path, expand_training, min_icesat2_samples, minDOY, maxDOY, max_sol_el){
@@ -586,11 +576,15 @@ run_modeling_pipeline <-function(rds_models, all_train_data, boreal_poly,
   summary <- tile_and_boreal_summary(map, predict_var, boreal_poly, summary_and_convert_functions)
   cat('tile_summary:', summary$tile_summary, ' boreal summary:', summary$boreal_summary, '\n')
 
+  single_model_stats <- get_single_model_stats(model)
+  print('single model stats:')
+  print(single_model_stats[c('OOB_MSE', 'OOB_RMSE', 'OOB_R2')])
+
   t2 <- Sys.time()
   cat('pipeline runtime:', difftime(t2, t1, units="mins"), ' (m)\n')
 
   return(list(
-    train_df=train_df, model=model, map=map,
+    single_model_stats=single_model_stats, map=map,
     tile_summary=summary[['tile_summary']], boreal_summary=summary[['boreal_summary']]
   ))
 }
@@ -637,6 +631,7 @@ run_uncertainty_calculation <- function(fixed_modeling_pipeline_params, max_iter
   mu <- c(results[['map']])
   tile_summary <- c(results[['tile_summary']])
   boreal_summary <- c(results[['boreal_summary']])
+  single_model_stats <- list(results[['single_model_stats']])
 
   params <- modifyList(
     fixed_modeling_pipeline_params,
@@ -650,9 +645,12 @@ run_uncertainty_calculation <- function(fixed_modeling_pipeline_params, max_iter
   while(((sd_diff > sd_thresh) && (this_iter < max_iters)) || (this_iter < min_iters)){
     cat('Uncertainty loop, iteration:', this_iter, '\n')
     results <- do.call(run_modeling_pipeline, params)
+
     res <- welford_update(this_iter, mu, M2, results[['map']])
+
     tile_summary <- c(tile_summary, results[['tile_summary']])
     boreal_summary <- c(boreal_summary, results[['boreal_summary']])
+    single_model_stats[[this_iter+1]] <- results[['single_model_stats']]
 
     if (this_iter > last_n){
       sd_diff <- sd_change_relative_to_baseline(tile_summary, last_n=last_n)
@@ -666,7 +664,8 @@ run_uncertainty_calculation <- function(fixed_modeling_pipeline_params, max_iter
   }
 
   return(list(map=mu, std=sqrt(M2/(this_iter - 1)), n_iters=this_iter,
-              tile_summary=tile_summary, boreal_summary=boreal_summary))
+              tile_summary=tile_summary, boreal_summary=boreal_summary,
+              single_model_stats=single_model_stats))
 }
 
 resample_if_needed <- function(src, des){
@@ -849,16 +848,13 @@ mapBoreal<-function(atl08_path, broad_path, hls_path, topo_path, lc_path, boreal
     list(max_samples=max_samples, randomize=FALSE)
   ))
 
-  output_fns <- set_output_file_names(predict_var, tile_num, year)
-
-  write_ATL08_table(predict_var, results[['train_df']], output_fns[['train']])
-  write_single_model_summary(results[['model']], results[['train_df']],  predict_var, output_fns)
-
   if (calculate_uncertainty) {
     results <- run_uncertainty_calculation(fixed_modeling_pipeline_params, max_iters, min_iters, results)
   }
-  print('AGB successfully predicted!')
-  write_output_summaries(results[['tile_summary']], results[['boreal_summary']], predict_var,  output_fns[['summary']])
+  cat(predict_var,  'successfully predicted!\n')
+
+  output_fns <- set_output_file_names(predict_var, tile_num, year)
+  write_output_summaries(results, predict_var, output_fns)
 
   if (calculate_uncertainty) {
     write_output_raster_map(results[['map']], results[['std']], output_fns[['map']])
