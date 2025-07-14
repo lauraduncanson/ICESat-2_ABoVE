@@ -569,6 +569,7 @@ run_modeling_pipeline <-function(rds_models, all_train_data, boreal_poly,
   print('fitting model')
   model <- fit_model(model, model_config, train_df, pred_vars, predict_var)
 
+  gc(verbose=TRUE)
   print('predicting biomass map')
   map <- predict_function(model, stack)
 
