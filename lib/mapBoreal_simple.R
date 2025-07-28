@@ -712,9 +712,6 @@ resample_reproject_and_mask <- function(topo_path, hls_path, lc_path, pred_vars,
   if(mask)
     stack <- mask_input_stack(stack)
 
-  # landcover mask is not needed anymore
-  # TODO I think masks are not probably needed once we leave this function
-  stack <- subset(stack, names(stack) != 'esa_worldcover_v100_2020')
   return(stack)
 }
 
