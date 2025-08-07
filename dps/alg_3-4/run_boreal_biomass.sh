@@ -5,55 +5,23 @@
 #source activate icesat2_boreal
 basedir=$( cd "$(dirname "$0")" ; pwd -P )
 libdir=$(dirname "$(dirname "${basedir}")")/lib
-#unset PROJ_LIB
-
-#pip install --user -r ${basedir}/requirements.txt
 
 mkdir output
-
-# Note: the numbered args are fed in with the in_param_dict in the Run DPS chunk of 3.4_dps.ipynb
-ATL08_tindex_master_fn=${1}
-TOPO_TIF=${2}
-HLS_TIF=${3}
-LC_TIF=${4}
-DO_SLOPE_VALID_MASK=${5}
-ATL08_SAMPLE_CSV=${6}
-in_tile_num=${7}
-in_tile_fn=${8}
-in_tile_field=${9}
-iters=${10}
-calculate_uncertainty=${11}
-minDOY=${12}
-maxDOY=${13}
-max_sol_el=${14}
-expand_training=${15}
-local_train_perc=${16}
-min_n=${17}
-boreal_vect_fn=${18}
-predict_var=${19}
-max_n=${20}
-pred_vars=${21}
-bio_models_tar_fn=${22}
-SAR_TIF=${23}
-year=${24}
-atl08_year_list=${31}
-
 source activate icesat2_boreal
-
-tar -xf ${bio_models_tar_fn}
+echo "basedir=${basedir}, bio_models=${22}, outdir=${OUTPUTDIR}, pwd=${PWD}, home=${HOME}"
 
 # This PWD is wherever the job is run (where the .sh is called from) 
 OUTPUTDIR="${PWD}/output"
 
 # required arguments
-args=(--in_tile_num "${in_tile_num}")
-args+=(--in_tile_fn "${in_tile_fn}")
+args=(--in_tile_num "${7}")
+args+=(--in_tile_fn "${8}")
 args+=(--out_dir "${OUTPUTDIR}")
 
 # optional arguments
-[[ -n "${in_tile_field}" ]] && args+=(--in_tile_field "${in_tile_field}")
-[[ -n "${ATL08_tindex_master_fn}" ]] && args+=(--csv_list_fn "${ATL08_tindex_master_fn}")
-[[ -n "${atl08_year_list}" ]] && args+=(--atl08_year_list "${atl08_year_list}")
+[[ -n "${1}" ]] && args+=(--csv_list_fn "${1}")
+[[ -n "${9}" ]] && args+=(--in_tile_field "${9}")
+[[ -n "${29}" ]] && args+=(--atl08_year_list "${29}")
 
 command=(python "${libdir}/merge_neighbors_atl08.py" "${args[@]}")
 echo "${command[@]}"
@@ -72,33 +40,32 @@ source activate r
 
 # required arguments
 args=(--atl08_path "${MERGED_ATL08_CSV}")
-args+=(--broad_path "${6}")
+args+=(--broad_path "${6}") # should be optional
 args+=(--topo_path "${2}")
 args+=(--hls_path "${3}")
 args+=(--lc_path "${4}")
-args+=(--boreal_vector_path "${18}")
+args+=(--boreal_vector_path "${17}") # should be optional
+args+=(--ecoregions_path "${18}") # should be optional
+args+=(--biomass_models_path "${22}")
 args+=(--year "${24}")
 
 # optional arguments
-[[ -n "${23}" ]] && args+=(--sar_path "${23}")
 [[ -n "${5}" ]] && args+=(--mask "${5}")
-[[ -n "${10}" ]] && args+=(--max_iters "${10}")
-[[ -n "${11}" ]] && args+=(--calculate_uncertainty "${11}")
-[[ -n "${12}" ]] && args+=(--minDOY "${12}")
-[[ -n "${13}" ]] && args+=(--maxDOY "${13}")
-[[ -n "${14}" ]] && args+=(--max_sol_el "${14}")
-[[ -n "${15}" ]] && args+=(--expand_training "${15}")
-[[ -n "${16}" ]] && args+=(--local_train_perc "${16}")
-[[ -n "${17}" ]] && args+=(--min_samples "${17}")
-[[ -n "${20}" ]] && args+=(--max_samples "${20}")
+[[ -n "${10}" ]] && args+=(--n_iters "${10}")
+[[ -n "${11}" ]] && args+=(--minDOY "${11}")
+[[ -n "${12}" ]] && args+=(--maxDOY "${12}")
+[[ -n "${13}" ]] && args+=(--max_sol_el "${13}")
+[[ -n "${14}" ]] && args+=(--expand_training "${14}")
+[[ -n "${15}" ]] && args+=(--local_train_perc "${15}")
+[[ -n "${16}" ]] && args+=(--min_samples "${16}")
 [[ -n "${19}" ]] && args+=(--predict_var "${19}")
+[[ -n "${20}" ]] && args+=(--max_samples "${20}")
 [[ -n "${21}" ]] && args+=(--pred_vars "${21}")
-[[ -n "${25}" ]] && args+=(--min_iters "${25}")
-[[ -n "${26}" ]] && args+=(--cores "${26}")
-[[ -n "${27}" ]] && args+=(--ntree "${27}")
-[[ -n "${28}" ]] && args+=(--zero_short_veg_height "${28}")
-[[ -n "${29}" ]] && args+=(--remove_short_veg "${29}")
-[[ -n "${30}" ]] && args+=(--slope_thresh "${30}")
+[[ -n "${23}" ]] && args+=(--sar_path "${23}")
+[[ -n "${25}" ]] && args+=(--cores "${25}")
+[[ -n "${26}" ]] && args+=(--ntree "${26}")
+[[ -n "${27}" ]] && args+=(--zero_short_veg_height "${27}")
+[[ -n "${28}" ]] && args+=(--slope_thresh "${28}")
 
 command=(Rscript "${libdir}/mapBoreal_simple.R" "${args[@]}")
 echo "${command[@]}"

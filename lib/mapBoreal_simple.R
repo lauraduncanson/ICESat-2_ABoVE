@@ -392,7 +392,7 @@ reformat_training_data_for_AGB_modeling <- function(tile_data, offset){
 prepare_training_data <- function(ice2_30_atl08_path, ice2_30_sample_path,
                                   expand_training, minDOY, maxDOY, max_sol_el,
                                   min_icesat2_samples, local_train_perc, offset, stack_vars,
-                                  remove_short_veg, zero_short_veg_height, slope_thresh,
+                                  zero_short_veg_height, slope_thresh,
                                   year, val_thresh, val_frac){
   print('preparing training data ...')
 
@@ -404,9 +404,6 @@ prepare_training_data <- function(ice2_30_atl08_path, ice2_30_sample_path,
   tile_data <- augment_training_data_with_broad_data(
     tile_data, ice2_30_sample_path, local_train_perc, min_icesat2_samples
   )
-
-  if (remove_short_veg)
-    tile_data <- short_veg_filter(tile_data, slope_thresh)
 
   if (zero_short_veg_height)
     tile_data <- set_short_veg_height_to_zero(tile_data, slope_thresh)
@@ -455,8 +452,10 @@ train_test_split_if_enough_data <- function(df, year, val_thresh, val_frac){
   return(list(val_data=val_data, train_data=train_data))
 }
 
-get_rds_models <- function(){
-  rds_model_fns <- list.files(pattern='*.rds')
+get_rds_models <- function(biomass_models_path){
+  base_dir <- dirname(biomass_models_path)
+  untar(biomass_models_path, exdir=base_dir)
+  rds_model_fns <- list.files(path=base_dir, pattern='*.rds', full.names=TRUE)
   rds_models <- lapply(rds_model_fns, readRDS)
   names(rds_models) <- paste0("m",1:length(rds_models))
   print(rds_models)
@@ -703,7 +702,7 @@ welford_update <- function(count, mu, M2, new_value){
     return (list(count=count, mu=mu, M2=M2))
 }
 
-run_uncertainty_calculation <- function(fixed_modeling_pipeline_params, max_samples, max_iters){
+run_uncertainty_calculation <- function(fixed_modeling_pipeline_params, max_samples, n_iters){
   results <- do.call(run_modeling_pipeline, modifyList(
     fixed_modeling_pipeline_params,
     list(max_samples=max_samples, randomize=FALSE)
@@ -728,11 +727,14 @@ run_uncertainty_calculation <- function(fixed_modeling_pipeline_params, max_samp
   M2 <- mu
   values(M2) <- 0.0
 
-  while(this_iter < max_iters){
+  while(this_iter < n_iters){
     cat('Uncertainty loop, iteration:', this_iter, '\n')
     new_results <- do.call(run_modeling_pipeline, params)
 
-    res <- welford_update(this_iter, mu, M2, new_results[['map']])
+    updated <- welford_update(this_iter, mu, M2, new_results[['map']])
+    mu <- updated[['mu']]
+    M2 <- updated[['M2']]
+
     this_iter <- this_iter + 1
 
     for (k in valid_keys){
@@ -744,9 +746,6 @@ run_uncertainty_calculation <- function(fixed_modeling_pipeline_params, max_samp
     }
 
     model_stats[[this_iter]] <- new_results[['model_stats']]
-
-    mu <- res[['mu']]
-    M2 <- res[['M2']]
   }
 
   s <- calculate_zonal_summary(mu, params$zones, params$zones_info)
@@ -913,6 +912,7 @@ mapBoreal <- function(atl08_path,
                       lc_path,
                       boreal_vector_path,
                       ecoregions_path,
+                      biomass_models_path,
                       year,
                       sar_path=NULL,
                       mask=TRUE,
@@ -929,7 +929,6 @@ mapBoreal <- function(atl08_path,
                       ntree=50,
                       predict_var='AGB',
                       pred_vars=c('elevation', 'slope', 'NDVI'),
-                      remove_short_veg=FALSE,
                       zero_short_veg_height=FALSE,
                       slope_thresh=15,
                       val_thresh=11000,
@@ -959,7 +958,7 @@ mapBoreal <- function(atl08_path,
   all_data <- prepare_training_data(
     atl08_path, broad_path, expand_training, minDOY,
     maxDOY, max_sol_el, min_samples, local_train_perc, offset, names(stack),
-    remove_short_veg, zero_short_veg_height, slope_thresh,
+    zero_short_veg_height, slope_thresh,
     as.integer(year), val_thresh, val_frac
   )
 
@@ -973,7 +972,7 @@ mapBoreal <- function(atl08_path,
   }
 
   fixed_modeling_pipeline_params <- list(
-    rds_models=get_rds_models(), all_train_data=all_data[['train_data']],
+    rds_models=get_rds_models(biomass_models_path), all_train_data=all_data[['train_data']],
     pred_vars=pred_vars, predict_var=predict_var, stack=stack, zones=zones[['zones']],
     zones_info=zones[['zones_info']],
     model=randomForest, model_config=list(ntree=ntree), sample=TRUE,
@@ -1044,6 +1043,10 @@ option_list <- list(
     help = "Path to the ecoregions vector file",
     ),
   make_option(
+    c("--biomass_models_path"), type = "character",
+    help = "Path to the tarbarr of biomass rds models",
+    ),
+  make_option(
     c("-y", "--year"), type = "character",
     help = "Year of the input HLS imagery"
   ),
@@ -1086,10 +1089,6 @@ option_list <- list(
   make_option(
     c ("--ntree"), type = "integer", default = 50,
     help = "Number of random forest trees [default: %default]"
-  ),
-  make_option(
-    c ("--remove_short_veg"), type = "logical", default = FALSE,
-    help = "removes shrubs, herbaceous, moss/lichen and bare/spare veg classes from training dataset [default: %default]"
   ),
   make_option(
     c ("--zero_short_veg_height"), type = "logical", default = FALSE,
@@ -1141,5 +1140,12 @@ cat("Parsed arguments:\n")
 print(opt)
 if (!is.null(opt$help)) {
   print_help(opt_parser)
+}
+for(arg in c('atl08_path', 'broad_path', 'topo_path', 'hls_path', 'lc_path',
+             'boreal_vector_path', 'ecoregions_path', 'biomass_models_path')){
+  if (is.null(opt[[arg]])){
+    # TODO: some of these args should actually be optional.
+    stop(paste0("ERROR: --",arg, " is required."))
+  }
 }
 do.call(mapBoreal, opt)

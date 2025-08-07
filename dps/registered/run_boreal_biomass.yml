@@ -1,6 +1,6 @@
 algorithm_description: Map aboveground biomass final output
 algorithm_name: run_boreal_biomass_map
-algorithm_version: dev_v1.15
+algorithm_version: boreal_summary
 build_command: icesat2_boreal/dps/build_command_agb.sh
 disk_space: 80GB
 docker_container_url: mas.maap-project.org/root/maap-workspaces/base_images/r:v4.1.0
@@ -36,132 +36,128 @@ inputs:
     name: boreal_vect
     required: true
   - default: ''
+    description: wwf ecoregions shapefile
+    name: ecoregions_fn_url
+    required: true
+  - default: ''
     description: tar file of rds biomass models
     name: bio_models_tar_fn_url
     required: true
   positional:
   - default: ''
-    description: tindex file used for merge neighbours algorithm pos
+    description: tindex file used for merge neighbours algorithm pos, 1
     name: in_atl08_fn
     required: true
   - default: ''
-    description: topo file pos
+    description: topo file pos, 2
     name: in_topo_fn
     required: true
   - default: ''
-    description: hls file pos
+    description: hls file pos, 3
     name: in_hls_fn
     required: true
   - default: ''
-    description: landcover file pos
+    description: landcover file pos, 4
     name: in_lc_fn
     required: true
   - default: ''
-    description: true or false to run masking
+    description: true or false to run masking, 5
     name: DO_SLOPE_VALID_MASK
     required: true
   - default: ''
-    description: atl08 boreal-wide sample csv
+    description: atl08 boreal-wide sample csv, 6
     name: in_atl08_sample_fn
     required: true
   - default: ''
-    description: tile number to run
+    description: tile number to run, 7
     name: in_tile_num
     required: true
   - default: ''
-    description: tile filename
+    description: tile filename, 8
     name: in_tile_fn
     required: true
   - default: ''
-    description: layer to use for merge_neighbors
+    description: layer to use for merge_neighbors, 9
     name: in_tile_field
     required: true
   - default: ''
-    description: 'max number of bootstrap runs for uncertainty calculation'
-    name: max_iters
+    description: number of bootstrap runs for sd and uncertainty calculation, 10
+    name: n_iters
     required: true
   - default: ''
-    description: Whether to calculate uncertainties
-    name: calculate_uncertainty
-    required: true
-  - default: ''
-    description: earliest DOY for filtering
+    description: earliest DOY for filtering, 11
     name: minDOY
     required: true
   - default: ''
-    description: latest DOY for filtering
+    description: latest DOY for filtering, 12
     name: maxDOY
     required: true
   - default: ''
-    description: max sun angle for filtering
+    description: max sun angle for filtering, 13
     name: max_sol_el
     required: true
   - default: ''
-    description: true/false to relax filters to ensure sufficient training data
+    description: true/false to relax filters to ensure sufficient training data, 14
     name: expand_training
     required: true
   - default: ''
-    description: percent in-tile vs boreal-wide for training models
+    description: percent in-tile vs boreal-wide for training models, 15
     name: local_train_perc
     required: true
   - default: ''
-    description: min sample size required for models
+    description: min sample size required for models, 16
     name: min_samples
     required: true
   - default: ''
-    description: filename for boreal vector
+    description: filename for boreal vector, 17
     name: boreal_vect_fn
     required: true
   - default: ''
-    description: AGB or Ht to map
+    description: filename for wwf ecoregions vector, 18
+    name: ecoregions_fn
+    required: true
+  - default: ''
+    description: AGB or Ht to map, 19
     name: predict_var
     required: true
   - default: ''
-    description: max sample size allowed for models
+    description: max sample size allowed for models, 20
     name: max_samples
     required: true
   - default: ''
-    description: space separated list of predictors
+    description: space separated list of predictors, 21
     name: pred_vars
     required: true
   - default: ''
-    description: tar filename of biomass models
+    description: tar filename of biomass models, 22
     name: bio_models_tar_fn
     required: true
   - default: ''
-    description: sar file
+    description: sar file, 23
     name: in_sar_fn
     required: false
   - default: ''
-    description: year of the input HLS imagery
+    description: year of the input HLS imagery, 24
     name: year
     required: true
   - default: ''
-    description: min number of bootstrap runs for uncertainty calculation
-    name: min_iters
-    required: true
-  - default: ''
-    description: Number of cores used for parallel Random Forest Prediction
+    description: Number of cores used for parallel Random Forest Prediction, 25
     name: cores
     required: true
   - default: ''
-    description: Number of trees of the Random Forest model(s)
+    description: Number of trees of the Random Forest model(s), 26
     name: ntree
     required: true
   - default: ''
-    description: set atl08 RH columns of shrubs, moss, lichen, bare and sparse veg on steep slope to zero
+    description: set atl08 RH columns of shrubs, moss, lichen, bare and sparse veg on steep slope to zero, 27
     name: zero_short_veg_height
     required: true
   - default: ''
-    description: remove shrubs, moss, lichen, bare and sparse veg on steep slopes from atl08 traing data
-    name: remove_short_veg
-    required: true
-  - default: ''
-    description: slope threshold beyond which short veg height is set to zero
+    description: slope threshold beyond which short veg height is set to zero, 28
     name: slope_thresh
     required: true
   - default: ''
-    description: space separated list of year(s) of atl08 training data to merge
+    description: space separated list of year(s) of atl08 training data to merge, 29
     name: atl08_year_list
     required: true
 
