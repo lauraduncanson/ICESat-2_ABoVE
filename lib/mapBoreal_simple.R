@@ -102,7 +102,7 @@ GEDI2AT08AGB<-function(rds_models, df, randomize=FALSE, max_n=10000, sample=TRUE
     df$AGB[df$AGB < 0] <- 0.0
 
     # Calculate Correction Factor C
-    C <- mean(model_i$fitted.values^2)/mean(model_i$model$`sqrt(AGBD)`^2)
+    C <- mean(model_i$model$`sqrt(AGBD)`^2) / mean(model_i$fitted.values^2)
 
     # Bias correction in case there is a systematic over or under estimation in the model
     df$AGB[df$model_id==i] <- C*(df$AGB[df$model_id==i]^2)
