@@ -268,10 +268,10 @@ set_output_file_names <- function(predict_var, tile_num, year){
     sep="_"
   )
 
-  fn_suffix <- c('.tif', '_overall.csv', '_north.csv', '_boreal.csv',
+  fn_suffix <- c('.tif', '_overall.csv', '_north.csv', '_boreal.csv', '_boreal_eco.csv',
                  '_by_lc.csv', '_by_slope.csv','_by_ecoregion.csv',
                  '_model_stats.csv', '_ensemble_stats.csv', '_val.csv')
-  names <- c('map', 'overall', 'north', 'boreal',
+  names <- c('map', 'overall', 'north', 'boreal', 'boreal_eco',
              'by_lc', 'by_slope', 'by_ecoregion',
              'model_stats', 'ensemble_stats', 'validation')
 
@@ -542,7 +542,7 @@ rasterize_boundaries <- function(template, poly, layer_name, field=NULL){
   poly_cropped <- project(crop(poly, bbox_4326), crs(template))
 
   if (!is.null(field)) {
-    r <- rasterize(poly_cropped, template, field=field, touches=TRUE)
+    r <- rasterize(poly_cropped, template, field=field, touches=FALSE)
   }
   else {
     r <- rasterize(poly_cropped, template, touches=TRUE)
@@ -579,7 +579,8 @@ prep_summary_layers <- function(slope_raster, lc_raster, ecoregions, boreal_poly
   slope_lyr <- classify_slope(slope_raster, 'slope')
   names(lc_raster) <- 'lc'
   zones <- c(slope_lyr, lc_raster)
-  zones_info <- list(has_eco=FALSE, has_boreal=FALSE, relative_to_north_lat=NULL)
+  zones_info <- list(has_eco=FALSE, has_boreal=FALSE,
+                     has_boreal_eco=FALSE, relative_to_north_lat=NULL)
   # slope_raster is only used as a template raster for the rasterizer
   # e.g, dims, res, crs, ...
   ecoregions_lyr <- rasterize_boundaries(slope_raster, ecoregions, 'eco', field='OBJECTID')
@@ -594,6 +595,17 @@ prep_summary_layers <- function(slope_raster, lc_raster, ecoregions, boreal_poly
     zones_info$has_boreal <- TRUE
   }
 
+  boreal_eco_lyr <- rasterize_boundaries(
+    slope_raster,
+    terra::intersect(ecoregions, boreal_poly),
+    'boreal_eco',
+    field='OBJECTID'
+  )
+  if (any(!is.na(values(boreal_eco_lyr)))){
+    zones <- c(zones, boreal_eco_lyr)
+    zones_info$has_boreal_eco <- TRUE
+  }
+
   north_result <- clip_to_north_lat(slope_raster)
   zones_info$relative_to_north_lat <- north_result[['relative_to_north_lat']]
   if (north_result[['relative_to_north_lat']] == 'intersects'){
@@ -605,8 +617,6 @@ prep_summary_layers <- function(slope_raster, lc_raster, ecoregions, boreal_poly
 }
 
 calculate_zonal_summary <- function(map, zones, zones_info){
-  # zones is a stack of lc, slope, and eco region classes
-  # two other classes of boreal/not and northen/not
   sums <- zonal(map, zones[['lc']], "sum", na.rm=TRUE) |> rename(AGBD_sum=AGBD)
   counts <- zonal(map, zones[['lc']], "notNA", na.rm=TRUE) |> rename(count=AGBD)
   by_lc <- full_join(sums, counts, by = 'lc')
@@ -627,6 +637,12 @@ calculate_zonal_summary <- function(map, zones, zones_info){
     full_join(sums, counts, by = 'boreal')
   } else { NULL }
 
+  boreal_eco <- if (zones_info$has_boreal_eco) {
+    sums <- zonal(map, zones[['boreal_eco']], "sum", na.rm=TRUE) |> rename(AGBD_sum=AGBD)
+    counts <- zonal(map, zones[['boreal_eco']], "notNA", na.rm=TRUE) |> rename(count=AGBD)
+    full_join(sums, counts, by = 'boreal_eco')
+  } else { NULL }
+
   overall <- by_slope |> summarise(AGBD_sum=sum(AGBD_sum), count=sum(count))
 
   north <- if (zones_info$relative_to_north_lat == 'intersects') {
@@ -639,7 +655,7 @@ calculate_zonal_summary <- function(map, zones, zones_info){
   } else { NULL }
 
   return(list(by_lc=by_lc, by_slope=by_slope, by_ecoregion=by_ecoregion,
-              overall=overall, boreal=boreal, north=north))
+              overall=overall, boreal=boreal, north=north, boreal_eco=boreal_eco))
 }
 
 fit_model <- function(model, model_config, train_df, pred_vars, predict_var){
