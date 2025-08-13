@@ -319,10 +319,31 @@ write_output_raster_map <- function(maps, std = NULL, output_fn) {
     output_maps <- maps
   }
 
-  raster_options <- c("COMPRESS=LZW", overwrite = TRUE,
-                      gdal = c("COMPRESS=LZW", "OVERVIEW_RESAMPLING=AVERAGE"))
-  writeRaster(output_maps, filename = output_fn, filetype = "COG",
-              gdal = raster_options, NAflag = -9999)
+  tmp_output_fn <- str_replace(output_fn, '.tif', '_temp.tif')
+  writeRaster(
+    output_maps,
+    filename = tmp_output_fn,
+    filetype = "GTiff",
+    gdal = c("COMPRESS=DEFLATE", "TILED=YES", "BLOCKXSIZE=256", "BLOCKYSIZE=256"),
+    NAflag = -9999
+  )
+  # adding custom overviews for faster visualization
+  system(paste("gdaladdo",
+               "-r average",
+               "--config GDAL_TIFF_OVR_BLOCKSIZE 256",
+               tmp_output_fn,
+               "2 4 8 16",
+               collapse = " "))
+  # wrapping the tmp tiff in COG and forcing the same overviews and blocksize
+  system(paste("gdal_translate",
+               tmp_output_fn,
+               output_fn,
+               "-of COG",
+               "-co BLOCKSIZE=256",
+               "-co OVERVIEWS=FORCE_USE_EXISTING",
+               "-co COMPRESS=DEFLATE",
+               collapse = " "))
+  file.remove(tmp_output_fn)
 }
 
 write_output_summaries_and_stats <-function(summaries, model_stats, output_fns){
