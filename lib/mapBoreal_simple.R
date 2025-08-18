@@ -33,6 +33,7 @@ library(stringr)
 library(rockchalk)
 library(terra)
 library(parallel)
+library(arrow)
 
 get_height_column_names <- function(in_data){
   return(
@@ -58,7 +59,6 @@ offset_RH_columns <- function(all_train_data, offset){
 }
 
 set_model_id_for_AGB_prediction <- function(in_data, offset){
-  # TODO: uncomment correct model ids once tested against old results
   return(
     in_data |>
       mutate(model_id = case_when(
@@ -78,7 +78,7 @@ randomize_AGB_model <- function(model){
   return(model)
 }
 
-GEDI2AT08AGB<-function(rds_models, df, randomize=FALSE, max_n=10000, sample=TRUE){
+GEDI2AT08AGB<-function(biomass_models, df, randomize=FALSE, max_n=10000, sample=TRUE){
   if (sample && nrow(df) > max_n)
     df <- reduce_sample_size(df, max_n)
 
@@ -89,7 +89,7 @@ GEDI2AT08AGB<-function(rds_models, df, randomize=FALSE, max_n=10000, sample=TRUE
   n_models <- length(ids)
 
   for (i in ids){
-    model_i <- rds_models[[i]]
+    model_i <- biomass_models[[i]]
 
     # Modify coeffients through sampling variance covariance matrix
     if(randomize)
@@ -264,16 +264,18 @@ short_veg_filter <- function(df, slope_thresh){
 set_output_file_names <- function(predict_var, tile_num, year){
   key <- if (predict_var == 'AGB') 'agb' else 'ht'
   out_fn_stem = paste(
-    paste0('output/boreal_', key, '_', year), format(Sys.time(),"%Y%m%d%s"), str_pad(tile_num, 7, pad = "0"),
+    paste0('output/boreal_', key, '_', year),
+    format(Sys.time(),"%Y%m%d%s"),
+    str_pad(tile_num, 7, pad = "0"),
     sep="_"
   )
 
   fn_suffix <- c('.tif', '_overall.csv', '_north.csv', '_boreal.csv', '_boreal_eco.csv',
                  '_by_lc.csv', '_by_slope.csv','_by_ecoregion.csv',
-                 '_model_stats.csv', '_ensemble_stats.csv', '_val.csv')
+                 '_model_stats.csv', '_ensemble_stats.csv', '_val.csv', '_train.parquet')
   names <- c('map', 'overall', 'north', 'boreal', 'boreal_eco',
              'by_lc', 'by_slope', 'by_ecoregion',
-             'model_stats', 'ensemble_stats', 'validation')
+             'model_stats', 'ensemble_stats', 'validation', 'training')
 
   output_file_names <- paste0(out_fn_stem, fn_suffix)
   names(output_file_names) <- names
@@ -414,7 +416,7 @@ prepare_training_data <- function(ice2_30_atl08_path, ice2_30_sample_path,
                                   expand_training, minDOY, maxDOY, max_sol_el,
                                   min_icesat2_samples, local_train_perc, offset, stack_vars,
                                   zero_short_veg_height, slope_thresh,
-                                  year, val_thresh, val_frac){
+                                  year, val_thresh, val_frac, biomass_models, out_train_data_fn){
   print('preparing training data ...')
 
   tile_data <- read_and_filter_training_data(
@@ -453,6 +455,17 @@ prepare_training_data <- function(ice2_30_atl08_path, ice2_30_sample_path,
     stop('No traing data available, likley due to SAR being all -9999')
   }
 
+  # to get AGB and SE and publish the tile_data
+  tile_data <- GEDI2AT08AGB(biomass_models, tile_data, randomize=FALSE, sample=FALSE)
+  # reset the offset before saving
+  tile_data <- offset_RH_columns(tile_data, -1 * offset)
+  write_parquet(tile_data[c('lon', 'lat', 'segment_landcover',
+                            get_height_column_names(tile_data),
+                            'AGB', 'SE')], out_train_data_fn)
+  # add the offset back and drop AGB and SE
+  tile_data <- offset_RH_columns(tile_data, offset)
+  tile_data <- tile_data[,!(names(tile_data) %in% c('AGB', 'SE'))]
+
   tile_data <- train_test_split_if_enough_data(tile_data, year, val_thresh, val_frac)
 
   return(tile_data)
@@ -473,14 +486,14 @@ train_test_split_if_enough_data <- function(df, year, val_thresh, val_frac){
   return(list(val_data=val_data, train_data=train_data))
 }
 
-get_rds_models <- function(biomass_models_path){
+get_biomass_models <- function(biomass_models_path){
   base_dir <- dirname(biomass_models_path)
   untar(biomass_models_path, exdir=base_dir)
-  rds_model_fns <- list.files(path=base_dir, pattern='*.rds', full.names=TRUE)
-  rds_models <- lapply(rds_model_fns, readRDS)
-  names(rds_models) <- paste0("m",1:length(rds_models))
-  print(rds_models)
-  return(rds_models)
+  biomass_model_fns <- list.files(path=base_dir, pattern='*.rds', full.names=TRUE)
+  biomass_models <- lapply(biomass_model_fns, readRDS)
+  names(biomass_models) <- paste0("m",1:length(biomass_models))
+  print(biomass_models)
+  return(biomass_models)
 }
 
 create_predict_function <- function(cores){
@@ -559,7 +572,7 @@ rasterize_boundaries <- function(template, poly, layer_name, field=NULL){
   # rasterize poly using template raster to set dim, crs, res, ...
   # assumes poly is in EPSG 4326
   # TODO edge case when poly doesn't intersect template raster, how does this behave ???
-  bbox_4326 <- buffer(project(as.polygons(ext(template), crs(template)), 'EPSG:4326'), 1000)
+  bbox_4326 <- terra::buffer(project(as.polygons(ext(template), crs(template)), 'EPSG:4326'), 1000)
   poly_cropped <- project(crop(poly, bbox_4326), crs(template))
 
   if (!is.null(field)) {
@@ -604,7 +617,7 @@ prep_summary_layers <- function(slope_raster, lc_raster, ecoregions, boreal_poly
                      has_boreal_eco=FALSE, relative_to_north_lat=NULL)
   # slope_raster is only used as a template raster for the rasterizer
   # e.g, dims, res, crs, ...
-  ecoregions_lyr <- rasterize_boundaries(slope_raster, ecoregions, 'eco', field='OBJECTID')
+  ecoregions_lyr <- rasterize_boundaries(slope_raster, ecoregions, 'eco', field='ECO_ID')
   if (any(!is.na(values(ecoregions_lyr)))){
     zones <- c(zones, ecoregions_lyr)
     zones_info$has_eco <- TRUE
@@ -620,7 +633,7 @@ prep_summary_layers <- function(slope_raster, lc_raster, ecoregions, boreal_poly
     slope_raster,
     terra::intersect(ecoregions, boreal_poly),
     'boreal_eco',
-    field='OBJECTID'
+    field='ECO_ID'
   )
   if (any(!is.na(values(boreal_eco_lyr)))){
     zones <- c(zones, boreal_eco_lyr)
@@ -637,47 +650,59 @@ prep_summary_layers <- function(slope_raster, lc_raster, ecoregions, boreal_poly
   return(list(zones=zones, zones_info=zones_info))
 }
 
-calculate_zonal_summary <- function(map, zones, zones_info){
-  sums <- zonal(map, zones[['lc']], "sum", na.rm=TRUE) |> rename(AGBD_sum=AGBD)
-  counts <- zonal(map, zones[['lc']], "notNA", na.rm=TRUE) |> rename(count=AGBD)
-  by_lc <- full_join(sums, counts, by = 'lc')
+calculate_zonal_summary <- function(map, zones, zones_info, agg_fun, cores, map_name, result_name) {
 
-  sums <- zonal(map, zones[['slope']], "sum", na.rm=TRUE, touches=TRUE) |> rename(AGBD_sum=AGBD)
-  counts <- zonal(map, zones[['slope']], "notNA", na.rm=TRUE, touches=TRUE) |> rename(count=AGBD)
-  by_slope <- full_join(sums, counts, by = 'slope')
+  summary_fun <-function(lyr){
+    aggregates <- zonal(map, zones[[lyr]], agg_fun, na.rm = TRUE)
+    names(aggregates)[names(aggregates) == map_name] <- result_name
 
-  by_ecoregion <- if (zones_info$has_eco) {
-    sums <- zonal(map, zones[['eco']], "sum", na.rm=TRUE) |> rename(AGBD_sum=AGBD)
-    counts <- zonal(map, zones[['eco']], "notNA", na.rm=TRUE) |> rename(count=AGBD)
-    full_join(sums, counts, by = 'eco')
-  } else { NULL }
+    counts <- zonal(map, zones[[lyr]], "notNA", na.rm = TRUE)
+    names(counts)[names(counts) == map_name] <- 'count'
 
-  boreal <- if (zones_info$has_boreal) {
-    sums <- zonal(map, zones[['boreal']], "sum", na.rm=TRUE) |> rename(AGBD_sum=AGBD)
-    counts <- zonal(map, zones[['boreal']], "notNA", na.rm=TRUE) |> rename(count=AGBD)
-    full_join(sums, counts, by = 'boreal')
-  } else { NULL }
-
-  boreal_eco <- if (zones_info$has_boreal_eco) {
-    sums <- zonal(map, zones[['boreal_eco']], "sum", na.rm=TRUE) |> rename(AGBD_sum=AGBD)
-    counts <- zonal(map, zones[['boreal_eco']], "notNA", na.rm=TRUE) |> rename(count=AGBD)
-    full_join(sums, counts, by = 'boreal_eco')
-  } else { NULL }
-
-  overall <- by_slope |> summarise(AGBD_sum=sum(AGBD_sum), count=sum(count))
-
-  north <- if (zones_info$relative_to_north_lat == 'intersects') {
-    sums <- zonal(map, zones[['north']], "sum", na.rm=TRUE) |> rename(AGBD_sum=AGBD)
-    counts <- zonal(map, zones[['north']], "notNA", na.rm=TRUE) |> rename(count=AGBD)
-    full_join(sums, counts, by = 'north')
+    full_join(aggregates, counts, by=lyr)
   }
-  else if (zones_info$relative_to_north_lat == 'north') {
-    overall
-  } else { NULL }
 
-  return(list(by_lc=by_lc, by_slope=by_slope, by_ecoregion=by_ecoregion,
-              overall=overall, boreal=boreal, north=north, boreal_eco=boreal_eco))
+  tasks <- list(
+    by_lc = function(){
+      summary_fun('lc')
+    },
+    by_slope = function(){
+      summary_fun('slope')
+    },
+    by_ecoregion = function(){
+      if(zones_info$has_eco)
+        summary_fun('eco')
+      else NULL
+    },
+    boreal = function(){
+      if(zones_info$has_boreal)
+        summary_fun('boreal')
+      else NULL
+    },
+    boreal_eco = function(){
+      if(zones_info$has_boreal_eco)
+        summary_fun('boreal_eco')
+      else NULL
+    },
+    north = function(){
+      if(zones_info$relative_to_north_lat == 'intersects')
+        summary_fun('north')
+      else if(zones_info$relative_to_north_lat == 'south')
+        NULL
+    }
+  )
+
+  results_list <- mclapply(tasks, function(f) f(), mc.cores = cores)
+  agg_fun <- match.fun(agg_fun)
+  results_list$overall <- results_list$by_slope |>
+    summarise(!!result_name := agg_fun(.data[[result_name]]), count=sum(count))
+
+  if (zones_info$relative_to_north_lat == 'north') {
+    results_list$north <- results_list$overall
+  }
+  return(results_list)
 }
+
 
 fit_model <- function(model, model_config, train_df, pred_vars, predict_var){
   y_fit <- if (predict_var == 'Ht') train_df$h_canopy else train_df$AGB
@@ -687,25 +712,26 @@ fit_model <- function(model, model_config, train_df, pred_vars, predict_var){
   return(model_fit)
 }
 
-run_modeling_pipeline <-function(rds_models, all_train_data, zones, zones_info,
+run_modeling_pipeline <-function(biomass_models, all_train_data, zones, zones_info,
                                  model, model_config, randomize,
-                                 predict_function,
+                                 predict_function, cores, agg_fun, map_name, summary_column_name,
                                  max_samples, sample, pred_vars, predict_var, stack){
   t1 <- Sys.time()
   print('creating AGB traing data frame.')
-  train_df <- GEDI2AT08AGB(rds_models, all_train_data, randomize, max_samples, sample)
+  train_df <- GEDI2AT08AGB(biomass_models, all_train_data, randomize, max_samples, sample)
 
   print('fitting model')
   model <- fit_model(model, model_config, train_df, pred_vars, predict_var)
 
   gc(verbose=TRUE)
-  print('predicting biomass map')
 
+  print('predicting biomass map')
   preds <- predict_function(model, stack)
-  names(preds) <- if (predict_var == 'AGB') 'AGBD' else 'Ht'
+  names(preds) <- map_name
 
   print('calculating zonal summaries')
-  zonal_summary <- calculate_zonal_summary(preds, zones, zones_info)
+  zonal_summary <- calculate_zonal_summary(preds, zones, zones_info, agg_fun,
+                                           cores, map_name, summary_column_name)
 
   model_stats <- get_model_stats(model)
   print('model stats:')
@@ -715,19 +741,6 @@ run_modeling_pipeline <-function(rds_models, all_train_data, zones, zones_info,
   cat('pipeline runtime:', difftime(t2, t1, units="mins"), ' (m)\n')
 
   return(list(model_stats=model_stats, map=preds, zonal_summary=zonal_summary))
-}
-
-get_summary_and_convert_functions <- function(predict_var){
-  if (predict_var == 'AGB'){
-    summary_fun <- 'sum'
-    convert_fun <- function(x){x * 0.09 * 1e-9}
-  }
-  else{
-    summary_fun <- 'mean'
-    # no conversion needed for Ht
-    convert_fun <- function(x){x}
-  }
-  return(list(summary_fun=summary_fun, convert_fun=convert_fun))
 }
 
 welford_update <- function(count, mu, M2, new_value){
@@ -785,7 +798,9 @@ run_uncertainty_calculation <- function(fixed_modeling_pipeline_params, max_samp
     model_stats[[this_iter]] <- new_results[['model_stats']]
   }
 
-  s <- calculate_zonal_summary(mu, params$zones, params$zones_info)
+  s <- calculate_zonal_summary(mu, params$zones, params$zones_info,
+                               params$agg_fun, params$cores, params$map_name,
+                               params$summary_column_name)
   for (k in valid_keys){
     s[[k]]$iter <- -1
     results$zonal_summary[[k]] <- rbind(results$zonal_summary[[k]], s[[k]])
@@ -899,9 +914,9 @@ write_ensemble_stats <- function(val_df, out_fn=NULL){
   return(stats)
 }
 
-sample_map_at_lidar_points <-function(df, map, rds_models, year, predict_var, out_fn=NULL){
+sample_map_at_lidar_points <-function(df, map, biomass_models, year, predict_var, out_fn=NULL){
   df <- df[df$y == as.integer(year), ]
-  df <- GEDI2AT08AGB(rds_models, df, randomize=FALSE, sample=FALSE)
+  df <- GEDI2AT08AGB(biomass_models, df, randomize=FALSE, sample=FALSE)
 
   points_vect <- vect(df, geom = c('lon', 'lat'), crs = 'EPSG:4326')
 
@@ -929,14 +944,13 @@ sample_map_at_lidar_points <-function(df, map, rds_models, year, predict_var, ou
   return(val_df)
 }
 
-convert_units <- function(results){
+convert_AGBD_Mg_to_AGB_Pg <- function(results, AGBD_column_name){
   # assuming a pixel is 900 m^2
   Mg_per_ha_to_Pg <- 0.09 * 1e-9
 
   for (k in seq_along(results)){
-    results[[k]] <- results[[k]] |>
-      mutate(AGB_Pg = AGBD_sum * Mg_per_ha_to_Pg) |>
-      select(-AGBD_sum)
+    results[[k]][[AGBD_column_name]] <- results[[k]][[AGBD_column_name]] * Mg_per_ha_to_Pg
+    names(results[[k]])[names(results[[k]]) == AGBD_column_name] <- 'AGB_Pg'
   }
 
   return(results)
@@ -991,12 +1005,14 @@ mapBoreal <- function(atl08_path,
   # there are rge objects and now rasterized in zones layers above
   rm(boreal_poly)
   rm(ecoregions)
+  biomass_models <- get_biomass_models(biomass_models_path)
+  output_fns <- set_output_file_names(predict_var, tile_num, year)
 
   all_data <- prepare_training_data(
     atl08_path, broad_path, expand_training, minDOY,
     maxDOY, max_sol_el, min_samples, local_train_perc, offset, names(stack),
     zero_short_veg_height, slope_thresh,
-    as.integer(year), val_thresh, val_frac
+    as.integer(year), val_thresh, val_frac, biomass_models, output_fns[['training']]
   )
 
   if (cores > 1) {
@@ -1008,10 +1024,16 @@ mapBoreal <- function(atl08_path,
     stack <- stack_path
   }
 
+  map_name <- if(predict_var=='AGB') 'mean_AGBD' else 'mean_Ht'
+  agg_fun <- if(predict_var=='AGB') 'sum' else 'mean'
+
   fixed_modeling_pipeline_params <- list(
-    rds_models=get_rds_models(biomass_models_path), all_train_data=all_data[['train_data']],
+    biomass_models=biomass_models, all_train_data=all_data[['train_data']],
     pred_vars=pred_vars, predict_var=predict_var, stack=stack, zones=zones[['zones']],
-    zones_info=zones[['zones_info']],
+    zones_info=zones[['zones_info']], cores=cores,
+    map_name=map_name,
+    agg_fun=agg_fun,
+    summary_column_name=paste0(map_name, '_', agg_fun),
     model=randomForest, model_config=list(ntree=ntree), sample=TRUE,
     predict_function=create_predict_function(cores=cores)
   )
@@ -1019,9 +1041,15 @@ mapBoreal <- function(atl08_path,
   results <- run_uncertainty_calculation(fixed_modeling_pipeline_params, max_samples, n_iters)
   cat(predict_var,  'successfully predicted!\n')
 
-  output_fns <- set_output_file_names(predict_var, tile_num, year)
-
-  converted_summary <- convert_units(results[['zonal_summary']])
+  if (predict_var == 'AGB'){
+    converted_summary <- convert_AGBD_Mg_to_AGB_Pg(
+      results[['zonal_summary']],
+      fixed_modeling_pipeline_params$summary_column_name
+    )
+  }
+  else {
+    converted_summary <- results[['zonal_summary']]
+  }
   write_output_summaries_and_stats(
     converted_summary,
     results[['model_stats']],
@@ -1034,7 +1062,7 @@ mapBoreal <- function(atl08_path,
     val_df <- sample_map_at_lidar_points(
       all_data[['val_data']],
       results[['map']],
-      fixed_modeling_pipeline_params[['rds_models']],
+      fixed_modeling_pipeline_params[['biomass_models']],
       year,
       predict_var,
       output_fns[['validation']]
@@ -1185,4 +1213,6 @@ for(arg in c('atl08_path', 'broad_path', 'topo_path', 'hls_path', 'lc_path',
     stop(paste0("ERROR: --",arg, " is required."))
   }
 }
+
+set.seed(27182)
 do.call(mapBoreal, opt)
