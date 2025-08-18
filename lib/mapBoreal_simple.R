@@ -461,7 +461,7 @@ prepare_training_data <- function(ice2_30_atl08_path, ice2_30_sample_path,
   tile_data <- offset_RH_columns(tile_data, -1 * offset)
   write_parquet(tile_data[c('lon', 'lat', 'segment_landcover',
                             get_height_column_names(tile_data),
-                            'AGB', 'SE')], out_train_data_fn)
+                            'AGB', 'SE', 'model_id')], out_train_data_fn)
   # add the offset back and drop AGB and SE
   tile_data <- offset_RH_columns(tile_data, offset)
   tile_data <- tile_data[,!(names(tile_data) %in% c('AGB', 'SE'))]
@@ -575,7 +575,12 @@ rasterize_boundaries <- function(template, poly, layer_name, field=NULL){
   bbox_4326 <- terra::buffer(project(as.polygons(ext(template), crs(template)), 'EPSG:4326'), 1000)
   poly_cropped <- project(crop(poly, bbox_4326), crs(template))
 
-  if (!is.null(field)) {
+  if (nrow(poly_cropped) == 0) {
+    # No overlap case return all NA raster
+    r <- rast(template)
+    values(r) <- NA
+  }
+  else if (!is.null(field)) {
     r <- rasterize(poly_cropped, template, field=field, touches=FALSE)
   }
   else {
@@ -629,15 +634,17 @@ prep_summary_layers <- function(slope_raster, lc_raster, ecoregions, boreal_poly
     zones_info$has_boreal <- TRUE
   }
 
-  boreal_eco_lyr <- rasterize_boundaries(
-    slope_raster,
-    terra::intersect(ecoregions, boreal_poly),
-    'boreal_eco',
-    field='ECO_ID'
-  )
-  if (any(!is.na(values(boreal_eco_lyr)))){
-    zones <- c(zones, boreal_eco_lyr)
-    zones_info$has_boreal_eco <- TRUE
+  if (zones_info$has_eco && zones_info$has_boreal){
+    boreal_eco_lyr <- rasterize_boundaries(
+      slope_raster,
+      terra::intersect(ecoregions, boreal_poly),
+      'boreal_eco',
+      field='ECO_ID'
+    )
+    if (any(!is.na(values(boreal_eco_lyr)))){
+      zones <- c(zones, boreal_eco_lyr)
+      zones_info$has_boreal_eco <- TRUE
+    }
   }
 
   north_result <- clip_to_north_lat(slope_raster)
