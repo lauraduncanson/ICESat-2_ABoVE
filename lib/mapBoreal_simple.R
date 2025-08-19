@@ -298,8 +298,6 @@ get_model_stats <- function(model){
 }
 
 write_output_raster_map <- function(maps, std = NULL, output_fn) {
-  if (!is.null(std))
-    names(std) <- 'std'
   # Set NA flag for primary maps
   if (is.list(maps) || nlyr(maps) > 0) {
     for (i in 1:nlyr(maps)) {
@@ -571,7 +569,6 @@ classify_slope <- function(slope_raster, layer_name){
 rasterize_boundaries <- function(template, poly, layer_name, field=NULL){
   # rasterize poly using template raster to set dim, crs, res, ...
   # assumes poly is in EPSG 4326
-  # TODO edge case when poly doesn't intersect template raster, how does this behave ???
   bbox_4326 <- terra::buffer(project(as.polygons(ext(template), crs(template)), 'EPSG:4326'), 1000)
   poly_cropped <- project(crop(poly, bbox_4326), crs(template))
 
@@ -612,7 +609,6 @@ clip_to_north_lat <- function(template, north_lat=51.6){
   return(list(poly_4326_north=poly_4326_north,
               relative_to_north_lat=relative_to_north_lat))
 }
-
 
 prep_summary_layers <- function(slope_raster, lc_raster, ecoregions, boreal_poly){
   slope_lyr <- classify_slope(slope_raster, 'slope')
@@ -813,8 +809,11 @@ run_uncertainty_calculation <- function(fixed_modeling_pipeline_params, max_samp
     results$zonal_summary[[k]] <- rbind(results$zonal_summary[[k]], s[[k]])
   }
 
+  std <- sqrt(M2 / (this_iter - 1))
+  names(std) <- paste0('std_', if (params$predict_var == 'AGB') 'agbd' else 'ht')
+
   return(list(
-    map=mu, std=sqrt(M2/(this_iter - 1)),
+    map=mu, std=std,
     zonal_summary=results$zonal_summary[valid_keys],
     model_stats=model_stats
   ))
@@ -1031,7 +1030,7 @@ mapBoreal <- function(atl08_path,
     stack <- stack_path
   }
 
-  map_name <- if(predict_var=='AGB') 'mean_AGBD' else 'mean_Ht'
+  map_name <- if(predict_var=='AGB') 'mean_agbd' else 'mean_ht'
   agg_fun <- if(predict_var=='AGB') 'sum' else 'mean'
 
   fixed_modeling_pipeline_params <- list(
