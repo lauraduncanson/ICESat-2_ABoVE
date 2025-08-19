@@ -772,7 +772,7 @@ run_uncertainty_calculation <- function(fixed_modeling_pipeline_params, max_samp
 
   params <- modifyList(
     fixed_modeling_pipeline_params,
-    list(max_samples=1000, randomize=TRUE)
+    list(max_samples=max_samples, randomize=TRUE)
   )
 
   # initializing to 0, with crs of mu
