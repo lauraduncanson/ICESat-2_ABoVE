@@ -70,15 +70,7 @@ set_model_id_for_AGB_prediction <- function(in_data, offset){
   )
 }
 
-randomize_AGB_model <- function(model){
-  # modify coeffients through sampling variance covariance matrix
-  model_coeffs <- mvrnorm(n=50, mu=model$coefficients, Sigma=vcov(model))
-  model$coefficients <- model_coeffs[1,]
-
-  return(model)
-}
-
-GEDI2AT08AGB<-function(biomass_models, df, randomize=FALSE, max_n=10000, sample=TRUE){
+GEDI2AT08AGB<-function(biomass_models, df, iter=1, max_n=10000, sample=TRUE){
   if (sample && nrow(df) > max_n)
     df <- reduce_sample_size(df, max_n)
 
@@ -89,12 +81,9 @@ GEDI2AT08AGB<-function(biomass_models, df, randomize=FALSE, max_n=10000, sample=
   n_models <- length(ids)
 
   for (i in ids){
-    model_i <- biomass_models[[i]]
-
-    # Modify coeffients through sampling variance covariance matrix
-    if(randomize)
-      model_i <- randomize_AGB_model(model_i)
-
+    model_id_iter <- paste0(i, '_', iter)
+    model_i <- biomass_models[[model_id_iter]]
+    cat('\niter:', iter, 'model_id:', model_id_iter, '\n')
     # Predict AGB and SE
     df$AGB[df$model_id==i] <- predict(model_i, newdata=df[df$model_id==i,])
     df$SE[df$model_id==i] <- summary(model_i)$sigma^2
@@ -454,7 +443,7 @@ prepare_training_data <- function(ice2_30_atl08_path, ice2_30_sample_path,
   }
 
   # to get AGB and SE and publish the tile_data
-  tile_data <- GEDI2AT08AGB(biomass_models, tile_data, randomize=FALSE, sample=FALSE)
+  tile_data <- GEDI2AT08AGB(biomass_models, tile_data, iter=1, sample=FALSE)
   # reset the offset before saving
   tile_data <- offset_RH_columns(tile_data, -1 * offset)
   write_parquet(tile_data[c('lon', 'lat', 'segment_landcover',
@@ -484,14 +473,22 @@ train_test_split_if_enough_data <- function(df, year, val_thresh, val_frac){
   return(list(val_data=val_data, train_data=train_data))
 }
 
-get_biomass_models <- function(biomass_models_path){
+read_randomized_biomass_models <- function(biomass_models_path, n){
   base_dir <- dirname(biomass_models_path)
   untar(biomass_models_path, exdir=base_dir)
-  biomass_model_fns <- list.files(path=base_dir, pattern='*.rds', full.names=TRUE)
-  biomass_models <- lapply(biomass_model_fns, readRDS)
-  names(biomass_models) <- paste0("m",1:length(biomass_models))
-  print(biomass_models)
-  return(biomass_models)
+
+  models <- vector(mode='list', length = n*3)
+  model_ids <- c('m1', 'm3', 'm8')
+  names <- c()
+  for (model_id in model_ids){
+    names <- c(names, paste0(model_id, '_', 1:n))
+  }
+  names(models) <- names
+
+  for (model_name in names){
+    models[[model_name]] <- readRDS(file.path(base_dir, paste0(model_name, '.rds')))
+  }
+  return(models)
 }
 
 create_predict_function <- function(cores){
@@ -716,12 +713,12 @@ fit_model <- function(model, model_config, train_df, pred_vars, predict_var){
 }
 
 run_modeling_pipeline <-function(biomass_models, all_train_data, zones, zones_info,
-                                 model, model_config, randomize,
+                                 model, model_config, iter,
                                  predict_function, cores, agg_fun, map_name, summary_column_name,
                                  max_samples, sample, pred_vars, predict_var, stack){
   t1 <- Sys.time()
   print('creating AGB traing data frame.')
-  train_df <- GEDI2AT08AGB(biomass_models, all_train_data, randomize, max_samples, sample)
+  train_df <- GEDI2AT08AGB(biomass_models, all_train_data, iter=iter, max_samples, sample)
 
   print('fitting model')
   model <- fit_model(model, model_config, train_df, pred_vars, predict_var)
@@ -755,10 +752,10 @@ welford_update <- function(count, mu, M2, new_value){
     return (list(count=count, mu=mu, M2=M2))
 }
 
-run_uncertainty_calculation <- function(fixed_modeling_pipeline_params, max_samples, n_iters){
+run_uncertainty_calculation <- function(fixed_modeling_pipeline_params, n_iters){
   results <- do.call(run_modeling_pipeline, modifyList(
     fixed_modeling_pipeline_params,
-    list(max_samples=max_samples, randomize=FALSE)
+    list(iter=1)
   ))
 
   summary_keys <- names(results$zonal_summary)
@@ -770,11 +767,6 @@ run_uncertainty_calculation <- function(fixed_modeling_pipeline_params, max_samp
 
   model_stats <- list(results[['model_stats']])
 
-  params <- modifyList(
-    fixed_modeling_pipeline_params,
-    list(max_samples=max_samples, randomize=TRUE)
-  )
-
   # initializing to 0, with crs of mu
   mu <- c(results[['map']])
   M2 <- mu
@@ -782,6 +774,10 @@ run_uncertainty_calculation <- function(fixed_modeling_pipeline_params, max_samp
 
   while(this_iter < n_iters){
     cat('Uncertainty loop, iteration:', this_iter, '\n')
+    params <- modifyList(
+      fixed_modeling_pipeline_params,
+      list(iter=this_iter+1)
+    )
     new_results <- do.call(run_modeling_pipeline, params)
 
     updated <- welford_update(this_iter, mu, M2, new_results[['map']])
@@ -922,7 +918,7 @@ write_ensemble_stats <- function(val_df, out_fn=NULL){
 
 sample_map_at_lidar_points <-function(df, map, biomass_models, year, predict_var, out_fn=NULL){
   df <- df[df$y == as.integer(year), ]
-  df <- GEDI2AT08AGB(biomass_models, df, randomize=FALSE, sample=FALSE)
+  df <- GEDI2AT08AGB(biomass_models, df, iter=1, sample=FALSE)
 
   points_vect <- vect(df, geom = c('lon', 'lat'), crs = 'EPSG:4326')
 
@@ -1011,7 +1007,7 @@ mapBoreal <- function(atl08_path,
   # there are rge objects and now rasterized in zones layers above
   rm(boreal_poly)
   rm(ecoregions)
-  biomass_models <- get_biomass_models(biomass_models_path)
+  biomass_models <- read_randomized_biomass_models(biomass_models_path, n_iters)
   output_fns <- set_output_file_names(predict_var, tile_num, year)
 
   all_data <- prepare_training_data(
@@ -1036,7 +1032,7 @@ mapBoreal <- function(atl08_path,
   fixed_modeling_pipeline_params <- list(
     biomass_models=biomass_models, all_train_data=all_data[['train_data']],
     pred_vars=pred_vars, predict_var=predict_var, stack=stack, zones=zones[['zones']],
-    zones_info=zones[['zones_info']], cores=cores,
+    zones_info=zones[['zones_info']], cores=cores, max_samples=max_samples,
     map_name=map_name,
     agg_fun=agg_fun,
     summary_column_name=paste0(map_name, '_', agg_fun),
@@ -1044,7 +1040,7 @@ mapBoreal <- function(atl08_path,
     predict_function=create_predict_function(cores=cores)
   )
 
-  results <- run_uncertainty_calculation(fixed_modeling_pipeline_params, max_samples, n_iters)
+  results <- run_uncertainty_calculation(fixed_modeling_pipeline_params, n_iters)
   cat(predict_var,  'successfully predicted!\n')
 
   if (predict_var == 'AGB'){
