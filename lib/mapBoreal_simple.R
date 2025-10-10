@@ -260,10 +260,10 @@ set_output_file_names <- function(predict_var, tile_num, year){
   )
 
   fn_suffix <- c('.tif', '_overall.csv', '_north.csv', '_boreal.csv', '_boreal_eco.csv',
-                 '_by_lc.csv', '_by_slope.csv','_by_ecoregion.csv',
+                 '_by_lc.csv', '_by_slope.csv','_by_ecoregion.csv', '_by_country.csv',
                  '_model_stats.csv', '_ensemble_stats.csv', '_val.csv', '_train.parquet')
   names <- c('map', 'overall', 'north', 'boreal', 'boreal_eco',
-             'by_lc', 'by_slope', 'by_ecoregion',
+             'by_lc', 'by_slope', 'by_ecoregion', 'by_country',
              'model_stats', 'ensemble_stats', 'validation', 'training')
 
   output_file_names <- paste0(out_fn_stem, fn_suffix)
@@ -607,11 +607,11 @@ clip_to_north_lat <- function(template, north_lat=51.6){
               relative_to_north_lat=relative_to_north_lat))
 }
 
-prep_summary_layers <- function(slope_raster, lc_raster, ecoregions, boreal_poly){
+prep_summary_layers <- function(slope_raster, lc_raster, ecoregions, boreal_poly, countries){
   slope_lyr <- classify_slope(slope_raster, 'slope')
   names(lc_raster) <- 'lc'
   zones <- c(slope_lyr, lc_raster)
-  zones_info <- list(has_eco=FALSE, has_boreal=FALSE,
+  zones_info <- list(has_eco=FALSE, has_boreal=FALSE, has_country=FALSE,
                      has_boreal_eco=FALSE, relative_to_north_lat=NULL)
   # slope_raster is only used as a template raster for the rasterizer
   # e.g, dims, res, crs, ...
@@ -619,6 +619,12 @@ prep_summary_layers <- function(slope_raster, lc_raster, ecoregions, boreal_poly
   if (any(!is.na(values(ecoregions_lyr)))){
     zones <- c(zones, ecoregions_lyr)
     zones_info$has_eco <- TRUE
+  }
+
+  countries_lyr <- rasterize_boundaries(slope_raster, countries, 'country', field='iso3_code')
+  if (any(!is.na(values(countries_lyr)))){
+    zones <- c(zones, countries_lyr)
+    zones_info$has_country <- TRUE
   }
 
   boreal_lyr <- rasterize_boundaries(slope_raster, boreal_poly, 'boreal')
@@ -672,6 +678,11 @@ calculate_zonal_summary <- function(map, zones, zones_info, agg_fun, cores, map_
     by_ecoregion = function(){
       if(zones_info$has_eco)
         summary_fun('eco')
+      else NULL
+    },
+    by_country = function(){
+      if(zones_info$has_country)
+        summary_fun('country')
       else NULL
     },
     boreal = function(){
@@ -965,6 +976,7 @@ mapBoreal <- function(atl08_path,
                       lc_path,
                       boreal_vector_path,
                       ecoregions_path,
+                      countries_path,
                       biomass_models_path,
                       year,
                       sar_path=NULL,
@@ -998,15 +1010,18 @@ mapBoreal <- function(atl08_path,
   stack <- resample_reproject_and_mask(topo_path, hls_path, lc_path, pred_vars, mask, sar_path)
   boreal_poly <- vect(boreal_vector_path)
   ecoregions <- vect(ecoregions_path)
+  countries <- vect(countries_path)
   zones <- prep_summary_layers(
     stack[['slope']],
     stack[['esa_worldcover_v100_2020']],
     ecoregions,
-    boreal_poly
+    boreal_poly,
+    countries
   )
   # there are rge objects and now rasterized in zones layers above
   rm(boreal_poly)
   rm(ecoregions)
+  rm(countries)
   biomass_models <- read_randomized_biomass_models(biomass_models_path, n_iters)
   output_fns <- set_output_file_names(predict_var, tile_num, year)
 
@@ -1110,6 +1125,10 @@ option_list <- list(
     help = "Path to the ecoregions vector file",
     ),
   make_option(
+    c("--countries_path"), type = "character",
+    help = "Path to the world admin boundary (at country level) vector file with a iso3_code attrbitute",
+    ),
+  make_option(
     c("--biomass_models_path"), type = "character",
     help = "Path to the tarbarr of biomass rds models",
     ),
@@ -1209,7 +1228,8 @@ if (!is.null(opt$help)) {
   print_help(opt_parser)
 }
 for(arg in c('atl08_path', 'broad_path', 'topo_path', 'hls_path', 'lc_path',
-             'boreal_vector_path', 'ecoregions_path', 'biomass_models_path')){
+             'boreal_vector_path', 'ecoregions_path', 'biomass_models_path',
+             'countries_path')){
   if (is.null(opt[[arg]])){
     # TODO: some of these args should actually be optional.
     stop(paste0("ERROR: --",arg, " is required."))
