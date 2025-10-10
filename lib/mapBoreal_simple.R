@@ -505,36 +505,41 @@ create_predict_function <- function(cores){
     predict_stack_manual_chunks <- function(model, stack_path) {
       n_chunks <- cores
       stack <- rast(stack_path)
-      chunk_size <- ceiling(nrow(stack) / n_chunks)
+      chunk_size <- floor(nrow(stack) / n_chunks)
+      remainder <- nrow(stack) %% n_chunks
       chunks <- vector("list", n_chunks)
 
-      for (i in seq_len(n_chunks)) {
-        row_start <- (i - 1) * chunk_size + 1
-        row_end   <- min(i * chunk_size, nrow(stack))
-        chunks[[i]] <- list(id = i, row_start = row_start, row_end = row_end)
+      # give an extra row (i.e chunk_size + 1) to the first remainder cores
+      for (i in seq_len(remainder)){
+        chunks[[i]] <- list(row_start=(i-1)*(chunk_size+1)+1, n_rows=chunk_size+1)
+      }
+      # rest of the cores need only chunk_size rows
+      offset <- remainder * (chunk_size + 1)
+      for (i in seq_len(n_chunks-remainder)){
+        chunks[[i+remainder]] <- list(row_start=(i-1)*(chunk_size)+1+offset,
+                                      n_rows=chunk_size
+                                      )
       }
 
       process_chunk <- function(ch) {
         stack <- rast(stack_path)
-        n_rows <- ch$row_end - ch$row_start + 1
-        vals <- terra::values(stack, row = ch$row_start, nrows = n_rows)
+        vals <- terra::values(stack, row = ch$row_start, nrows = ch$n_rows)
         valid <- complete.cases(vals)
         preds <- rep(NA_real_, nrow(vals))
         if (any(valid)){
           preds[valid] <- predict(model, vals[valid, , drop = FALSE])
         }
-        list(preds = preds, row_start = ch$row_start, row_end = ch$row_end)
+        list(preds = preds, n_rows=ch$n_rows, row_start = ch$row_start)
       }
 
       message("Running on cluster with ", n_chunks, " workers")
       results <- parallel::mclapply(chunks, process_chunk,
                                     mc.cores = n_chunks, mc.preschedule = FALSE)
       # Reassemble
-
       all_preds <- numeric(nrow(stack) * ncol(stack))
       for (res in results) {
         offset <- (res$row_start - 1) * ncol(stack) + 1
-        all_preds[offset:(offset + length(res$preds) - 1)] <- res$preds
+        all_preds[offset:(offset + res$n_rows*ncol(stack) - 1)] <- res$preds
       }
 
       rast_pred <- rast(matrix(all_preds, nrow = nrow(stack), ncol = ncol(stack), byrow = TRUE))
