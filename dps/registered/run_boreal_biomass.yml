@@ -1,6 +1,6 @@
 algorithm_description: Map aboveground biomass final output
 algorithm_name: run_boreal_biomass_map
-algorithm_version: norway-test
+algorithm_version: dev_v2.0
 build_command: icesat2_boreal/dps/build_command_agb.sh
 disk_space: 80GB
 docker_container_url: mas.maap-project.org/root/maap-workspaces/base_images/r:v4.1.0
@@ -38,6 +38,10 @@ inputs:
   - default: ''
     description: wwf ecoregions shapefile
     name: ecoregions_fn_url
+    required: true
+  - default: ''
+    description: world admin boundaries of counties shapefile
+    name: countries_fn_url
     required: true
   - default: ''
     description: tar file of rds biomass models
@@ -159,6 +163,10 @@ inputs:
   - default: ''
     description: space separated list of year(s) of atl08 training data to merge, 29
     name: atl08_year_list
+    required: true
+  - default: ''
+    description: world admin boundaries of counties shapefile, 30
+    name: countries_fn
     required: true
 
 queue: maap-dps-worker-32gb

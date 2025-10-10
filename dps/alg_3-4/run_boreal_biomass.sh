@@ -46,6 +46,7 @@ args+=(--hls_path "${3}")
 args+=(--lc_path "${4}")
 args+=(--boreal_vector_path "${17}") # should be optional
 args+=(--ecoregions_path "${18}") # should be optional
+args+=(--countries_path "${30}") # should be optional
 args+=(--biomass_models_path "${22}")
 args+=(--year "${24}")
 
