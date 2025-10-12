@@ -1,7 +1,21 @@
-name: icesat2_boreal
+name: boreal
 channels:
   - conda-forge
 dependencies:
+  - python=3.11.*
   - geopandas
   - numpy
+  - fsspec
+  - s3fs
   - pyarrow
+  - r-base=4.3.*
+  - r-optparse
+  - r-arrow
+  - r-dplyr
+  - r-fs
+  - r-stringr
+  - r-randomforest
+  - r-terra
+  - r-rockchalk
+  - r-codetools
+
