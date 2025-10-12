@@ -1005,7 +1005,9 @@ mapBoreal <- function(atl08_path,
                       val_frac=0.10
                       )
 {
-
+  if(!predict_var %in% c('AGB', 'Ht')){
+    stop('predict_var must be one of AGB or Ht, case sensetive')
+  }
   tile_num = tail(unlist(strsplit(path_ext_remove(atl08_path), "_")), n=1)
   cat("Modelling and mapping boreal AGB tile: ", tile_num, "\n")
 
