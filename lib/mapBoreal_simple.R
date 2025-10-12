@@ -83,7 +83,7 @@ GEDI2AT08AGB<-function(biomass_models, df, iter=1, max_n=10000, sample=TRUE){
   for (i in ids){
     model_id_iter <- paste0(i, '_', iter)
     model_i <- biomass_models[[model_id_iter]]
-    cat('\niter:', iter, 'model_id:', model_id_iter, '\n')
+
     # Predict AGB and SE
     df$AGB[df$model_id==i] <- predict(model_i, newdata=df[df$model_id==i,])
     df$SE[df$model_id==i] <- summary(model_i)$sigma^2
