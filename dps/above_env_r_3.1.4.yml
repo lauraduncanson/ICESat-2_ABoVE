@@ -1,22 +1,21 @@
-name: icesat2_boreal
+name: boreal
 channels:
   - conda-forge
-  - defaults
 dependencies:
+  - python=3.11.*
   - geopandas
-  - rasterio
-  - importlib_resources
-  - contextily
+  - numpy
   - fsspec
   - s3fs
-  - xmltodict
-  - pydantic<2
-  - rio-cogeo
-  - rio-tiler
-  - morecantile
-  - pystac-client
-  - rtree
-  - numpy
-  - pycurl
-  - rasterstats
   - pyarrow
+  - r-base=4.3.*
+  - r-optparse
+  - r-arrow
+  - r-dplyr
+  - r-fs
+  - r-stringr
+  - r-randomforest
+  - r-terra
+  - r-rockchalk
+  - r-codetools
+

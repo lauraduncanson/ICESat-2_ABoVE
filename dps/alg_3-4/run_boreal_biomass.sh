@@ -1,13 +1,11 @@
 #!/bin/bash
-# this is intended for running DPS jobs; the input directory is where four files have been pulled because download=TRUE in the algorithm_config.yaml file
-# a tar file of biomass models, a data table csv, and two raster stack geotiff files
+# this is intended for running DPS jobs
 
-#source activate icesat2_boreal
 basedir=$( cd "$(dirname "$0")" ; pwd -P )
 libdir=$(dirname "$(dirname "${basedir}")")/lib
 
 mkdir output
-source activate icesat2_boreal
+source activate boreal
 echo "basedir=${basedir}, bio_models=${22}, outdir=${OUTPUTDIR}, pwd=${PWD}, home=${HOME}"
 
 # This PWD is wherever the job is run (where the .sh is called from) 
@@ -27,16 +25,14 @@ command=(python "${libdir}/merge_neighbors_atl08.py" "${args[@]}")
 echo "${command[@]}"
 "${command[@]}"
 
-echo $command
-eval $command
+# echo $command
+# eval $command
 
 # Set the output merged CSV name to a var
 MERGED_ATL08_CSV=$(ls ${OUTPUTDIR}/*_merge_neighbors_*.csv | head -1)
 
 echo $MERGED_ATL08_CSV
 echo $ATL08_SAMPLE_CSV
-
-source activate r
 
 # required arguments
 args=(--atl08_path "${MERGED_ATL08_CSV}")
@@ -46,6 +42,7 @@ args+=(--hls_path "${3}")
 args+=(--lc_path "${4}")
 args+=(--boreal_vector_path "${17}") # should be optional
 args+=(--ecoregions_path "${18}") # should be optional
+args+=(--countries_path "${30}") # should be optional
 args+=(--biomass_models_path "${22}")
 args+=(--year "${24}")
 
