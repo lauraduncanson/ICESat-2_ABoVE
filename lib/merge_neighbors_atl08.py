@@ -1,10 +1,7 @@
-
-
 import os
+import argparse
 import pandas as pd
 import geopandas as gpd
-
-import argparse
 
 def local_to_s3(url, user = 'nathanmthomas', type='public'):
     ''' A Function to convert local paths to s3 urls'''
@@ -37,30 +34,14 @@ def get_neighbors(input_gdf, input_id_field, input_id):
     
     return neighbors
 
-def main():
+def main(in_tile_num, in_tile_fn, csv_list_fn, out_dir, in_tile_field='tile_num', DPS_DATA_USER='montesano',
+         write_output_csv=True, write_output_parquet=True):
     '''
     Script to merge ATL08 filt Geoparquets or CSVs for adjacent (neighbor) tiles
     Returns a merged Geoparquet and/or CSV of the filtered ATL08 for the focal tile and its max 8 tile neighbors
     Used for spatially adaptive model building
     This is run after DPS of covariate extraction of raster pixel values to filtered ATL08 and before mapBoreal.R
     '''
-
-    parser = argparse.ArgumentParser()
-    parser.add_argument("-in_tile_num", type=int, help="The id number of an input vector tile that will define the bounds for ATL08 subset")
-    parser.add_argument("-in_tile_fn",  type=str, default='/projects/shared-buckets/montesano/databank/boreal_tiles_v004.gpkg', help="The input filename of a set of vector tiles that will define the bounds for ATL08 subset")
-    parser.add_argument("-in_tile_field", type=str, default='tile_num', help="The name of the field that holds the tile ids")
-    parser.add_argument("-csv_list_fn", type=str, default='s3://maap-ops-workspace/shared/montesano/DPS_tile_lists/ATL08/process_atl08_boreal/030m/2020/ATL08_filt_tindex_master.csv', help="The tindex master list of all paths to filtered + extracted covariate ATL08 Geoparquets/CSVs")
-    parser.add_argument("-DPS_DATA_USER", type=str, default='montesano', help="The name for the MAAP user associated with the processing of the filtered ATL08 Geoparquet/CSV files")
-    parser.add_argument("-out_dir", type=str, default=None, help='Output dir of merge neighbors Geoparquet and/or CSV for input tile id')
-    
-    args = parser.parse_args()
-    
-    in_tile_num = args.in_tile_num
-    in_tile_fn = args.in_tile_fn
-    in_tile_field = args.in_tile_field
-    csv_list_fn = args.csv_list_fn
-    DPS_DATA_USER = args.DPS_DATA_USER
-    out_dir = args.out_dir
     
     # Get the vector tiles
     in_tile_gdf = gpd.read_file(in_tile_fn)
@@ -109,11 +90,10 @@ def main():
     if focal_atl08_gdf_fn.endswith('parquet'):
         input_ext='parquet'
         atl08 = pd.concat([gpd.read_parquet(f, storage_options={'anon':True}) for f in ATL08_filt_csv_s3_fn_list], sort=False)
-        # Write df to Geoparquet
-        #out_parquet_fn = os.path.join(out_dir, os.path.basename(focal_atl08_gdf_fn).split(f'.{input_ext}')[0] + f'_merge_neighbors_{in_tile_num:06}.parquet')
         out_parquet_fn = os.path.join(out_dir, out_fn_base_no_ext + '.parquet')
-        print(f'Wrote out: {out_parquet_fn}')
-        atl08.to_parquet(out_parquet_fn)
+        if write_output_parquet:
+            print(f'Wrote out: {out_parquet_fn}')
+            atl08.to_parquet(out_parquet_fn)
     else:
         input_ext='csv'
         # Read these ATL08 filtered CSVs into a single df
@@ -121,18 +101,108 @@ def main():
     
     print(f'Focal tile + neighbors shape: {atl08.shape}')
     
-    # Write df to CSV (regardless of what input type was...)
-    print('Adding lat, lon fields & dropping geometry field for CSV output...')
-    # you want lat lon field in the CSV output
-    atl08['lon'] = atl08.to_crs(4326).geometry.x  
-    atl08['lat'] = atl08.to_crs(4326).geometry.y
-    atl08.drop('geometry', axis=1, inplace=True)
-    
-    #out_csv_fn = os.path.join(out_dir, "atl08_004_30m_filt_merge_neighbors_" + str(f'{in_tile_num:05}.csv') )
-    #out_csv_fn = os.path.join(out_dir, os.path.basename(focal_atl08_gdf_fn).split(f'.{input_ext}')[0] + f'_merge_neighbors_{in_tile_num:06}.csv')
     out_csv_fn = os.path.join(out_dir, out_fn_base_no_ext + '.csv')
-    print(f'Wrote out: {out_csv_fn}')
-    atl08.to_csv(out_csv_fn, index=False)
+    if write_output_csv:
+        parquet_to_csv(atl08, out_csv_fn)
+
+    return atl08, out_csv_fn, out_parquet_fn
+
+def parquet_to_csv(atl08_gdf, out_csv_fn=None):
+    print('Adding lat, lon fields & dropping geometry field for CSV output...')
+    atl08_gdf['lon'] = atl08_gdf.to_crs(4326).geometry.x
+    atl08_gdf['lat'] = atl08_gdf.to_crs(4326).geometry.y
+    atl08_gdf.drop('geometry', axis=1, inplace=True)
+    if out_csv_fn:
+        print(f'Wrote out: {out_csv_fn}')
+        atl08_gdf.to_csv(out_csv_fn, index=False)
+    return atl08_gdf
+
+def update_output_fn(atl08_year_list, out_fn):
+    min_year = min([int(x) for x in atl08_year_list])
+    max_year = max([int(x) for x in atl08_year_list])
+    parts = os.path.basename(out_fn).split('_')
+    parts[3] = str(min_year)
+    parts[4] = str(max_year)
+    out_fn = os.path.join(os.path.dirname(out_fn), '_'.join(parts))
+    return out_fn
+
+
+def run_merge_neighbors_multi_year(args):
+    from mosaiclib import ATL08_FILT_EXTRACT_TINDEX_FN_DICT
+    args['write_output_csv'] = False
+    args['write_output_parquet'] = False
+    print(args)
+    dfs = []
+    atl08_year_list = args.pop('atl08_year_list')
+    for year in atl08_year_list:
+        path = ATL08_FILT_EXTRACT_TINDEX_FN_DICT[year]
+        print(f'atl08 path for year {year}: {path}')
+        args['csv_list_fn'] = path
+        df, out_csv_fn, out_parquet_fn = main(**args)
+        dfs.append(df)
+
+    print('Concatinating atl08 data frames for all years...')
+    atl08_all_years = pd.concat(dfs)
+    atl08_all_years = atl08_all_years.drop(
+        columns=[col for col in ['binsize', 'num_bins'] if col in atl08_all_years.columns]
+    )
+    out_csv_fn = update_output_fn(atl08_year_list, out_csv_fn)
+    out_parquet_fn = update_output_fn(atl08_year_list, out_parquet_fn)
+    print('writing csv and parquet outputs')
+    atl08_all_years.to_parquet(out_parquet_fn)
+    parquet_to_csv(atl08_all_years, out_csv_fn)
+    print(f'Output dim: {atl08_all_years.shape}')
+
 
 if __name__ == "__main__":
-    main()
+
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument(
+        "--in_tile_num",
+        type=int,
+        help="The id number of an input vector tile that will define the bounds for ATL08 subset"
+    )
+    parser.add_argument(
+        "--in_tile_fn",
+        type=str,
+        default='/projects/shared-buckets/montesano/databank/boreal_tiles_v004.gpkg',
+        help="The input filename of a set of vector tiles that will define the bounds for ATL08 subset"
+    )
+    parser.add_argument(
+        "--in_tile_field",
+        type=str,
+        default='tile_num',
+        help="The name of the field that holds the tile ids"
+    )
+    parser.add_argument(
+        "--csv_list_fn",
+        type=str,
+        default='s3://maap-ops-workspace/shared/montesano/DPS_tile_lists/ATL08/process_atl08_boreal/030m/2020/ATL08_filt_tindex_master.csv',
+        help="The tindex master list of all paths to filtered + extracted covariate ATL08 Geoparquets/CSVs"
+    )
+    parser.add_argument(
+        "--DPS_DATA_USER",
+        type=str,
+        default='montesano',
+        help="The name for the MAAP user associated with the processing of the filtered ATL08 Geoparquet/CSV files"
+    )
+    parser.add_argument(
+        "--out_dir",
+        type=str,
+        default=None,
+        help='Output dir of merge neighbors Geoparquet and/or CSV for input tile id'
+    )
+    parser.add_argument(
+        '--atl08_year_list',
+        default=None,
+        help='atl08 training data years to concat'
+    )
+
+    args = parser.parse_args().__dict__
+    if args['atl08_year_list']:
+        args['atl08_year_list'] = args['atl08_year_list'].split()
+        run_merge_neighbors_multi_year(args)
+    else:
+        args.pop('atl08_year_list')
+        main(**args)

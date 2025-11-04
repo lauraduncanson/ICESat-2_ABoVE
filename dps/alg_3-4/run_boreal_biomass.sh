@@ -1,57 +1,32 @@
 #!/bin/bash
-# this is intended for running DPS jobs; the input directory is where four files have been pulled because download=TRUE in the algorithm_config.yaml file
-# a tar file of biomass models, a data table csv, and two raster stack geotiff files
+# this is intended for running DPS jobs
 
-#source activate icesat2_boreal
 basedir=$( cd "$(dirname "$0")" ; pwd -P )
-
-#unset PROJ_LIB
-
-#pip install --user -r ${basedir}/requirements.txt
+libdir=$(dirname "$(dirname "${basedir}")")/lib
 
 mkdir output
-
-# Note: the numbered args are fed in with the in_param_dict in the Run DPS chunk of 3.4_dps.ipynb
-ATL08_tindex_master_fn=${1}
-TOPO_TIF=${2}
-LANDSAT_TIF=${3}
-LC_TIF=${4}
-DO_SLOPE_VALID_MASK=${5}
-ATL08_SAMPLE_CSV=${6}
-in_tile_num=${7}
-in_tile_fn=${8}
-in_tile_field=${9}
-iters=${10}
-ppside=${11}
-minDOY=${12}
-maxDOY=${13}
-max_sol_el=${14}
-expand_training=${15}
-local_train_perc=${16}
-min_n=${17}
-boreal_vect_fn=${18}
-predict_var=${19}
-max_n=${20}
-pred_vars=${21}
-
-TAR_FILE=${basedir}/../../lib/bio_models_noground.tar
-
-#unpack biomass models tar
-#tar -xvf input/bio_models.tar
-
-source activate icesat2_boreal
-
-# This will put the *rds in the same dir as the R script
-tar -xf ${TAR_FILE}
+source activate boreal
+echo "basedir=${basedir}, bio_models=${22}, outdir=${OUTPUTDIR}, pwd=${PWD}, home=${HOME}"
 
 # This PWD is wherever the job is run (where the .sh is called from) 
 OUTPUTDIR="${PWD}/output"
 
-# Get the output merged CSV of filtered ATL08 for the input tile and its neighbors
-cmd="python ${basedir}/../../lib/merge_neighbors_atl08.py -in_tile_num ${in_tile_num} -in_tile_fn ${in_tile_fn} -in_tile_field ${in_tile_field} -csv_list_fn ${ATL08_tindex_master_fn} -out_dir ${OUTPUTDIR}"
+# required arguments
+args=(--in_tile_num "${7}")
+args+=(--in_tile_fn "${8}")
+args+=(--out_dir "${OUTPUTDIR}")
 
-echo $cmd
-eval $cmd
+# optional arguments
+[[ -n "${1}" ]] && args+=(--csv_list_fn "${1}")
+[[ -n "${9}" ]] && args+=(--in_tile_field "${9}")
+[[ -n "${29}" ]] && args+=(--atl08_year_list "${29}")
+
+command=(python "${libdir}/merge_neighbors_atl08.py" "${args[@]}")
+echo "${command[@]}"
+"${command[@]}"
+
+# echo $command
+# eval $command
 
 # Set the output merged CSV name to a var
 MERGED_ATL08_CSV=$(ls ${OUTPUTDIR}/*_merge_neighbors_*.csv | head -1)
@@ -59,19 +34,36 @@ MERGED_ATL08_CSV=$(ls ${OUTPUTDIR}/*_merge_neighbors_*.csv | head -1)
 echo $MERGED_ATL08_CSV
 echo $ATL08_SAMPLE_CSV
 
-source activate r
+# required arguments
+args=(--atl08_path "${MERGED_ATL08_CSV}")
+args+=(--broad_path "${6}") # should be optional
+args+=(--topo_path "${2}")
+args+=(--hls_path "${3}")
+args+=(--lc_path "${4}")
+args+=(--boreal_vector_path "${17}") # should be optional
+args+=(--ecoregions_path "${18}") # should be optional
+args+=(--countries_path "${30}") # should be optional
+args+=(--biomass_models_path "${22}")
+args+=(--year "${24}")
 
-# Run mapBoreal with merged CSV as input
-cmd="Rscript ${basedir}/../../lib/mapBoreal_simple.R ${MERGED_ATL08_CSV} ${TOPO_TIF} ${LANDSAT_TIF} ${LC_TIF} ${DO_SLOPE_VALID_MASK} ${ATL08_SAMPLE_CSV} ${iters} ${ppside} ${minDOY} ${maxDOY} ${max_sol_el} ${expand_training} ${local_train_perc} ${min_n} ${boreal_vect_fn} ${predict_var} ${max_n} ${pred_vars}"
+# optional arguments
+[[ -n "${5}" ]] && args+=(--mask "${5}")
+[[ -n "${10}" ]] && args+=(--n_iters "${10}")
+[[ -n "${11}" ]] && args+=(--minDOY "${11}")
+[[ -n "${12}" ]] && args+=(--maxDOY "${12}")
+[[ -n "${13}" ]] && args+=(--max_sol_el "${13}")
+[[ -n "${14}" ]] && args+=(--expand_training "${14}")
+[[ -n "${15}" ]] && args+=(--local_train_perc "${15}")
+[[ -n "${16}" ]] && args+=(--min_samples "${16}")
+[[ -n "${19}" ]] && args+=(--predict_var "${19}")
+[[ -n "${20}" ]] && args+=(--max_samples "${20}")
+[[ -n "${21}" ]] && args+=(--pred_vars "${21}")
+[[ -n "${23}" ]] && args+=(--sar_path "${23}")
+[[ -n "${25}" ]] && args+=(--cores "${25}")
+[[ -n "${26}" ]] && args+=(--ntree "${26}")
+[[ -n "${27}" ]] && args+=(--zero_short_veg_height "${27}")
+[[ -n "${28}" ]] && args+=(--slope_thresh "${28}")
 
-echo $cmd
-eval $cmd
-
-#convert output to cog - downgraded gdal to 3.3.3 in build_command_main.sh
-#source activate base
-
-#IN_TIF_NAME=$(ls ${PWD}/output/*tmp.tif)
-#OUT_TIF_NAME=$(echo ${IN_TIF_NAME%tmp.tif}.tif)
-
-#gdal_translate -of COG $IN_TIF_NAME $OUT_TIF_NAME -r average
-#rm $IN_TIF_NAME
+command=(Rscript "${libdir}/mapBoreal_simple.R" "${args[@]}")
+echo "${command[@]}"
+"${command[@]}"
